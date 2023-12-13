@@ -5,6 +5,8 @@
 ![GitHub forks](https://img.shields.io/github/forks/ChampSim/ChampSim)
 [![Coverage Status](https://coveralls.io/repos/github/ChampSim/ChampSim/badge.svg?branch=develop)](https://coveralls.io/github/ChampSim/ChampSim?branch=develop)
 
+github commit test
+
 ChampSim is a trace-based simulator for a microarchitecture study. If you have questions about how to use ChampSim, we encourage you to search the threads in the Discussions tab or start your own thread. If you are aware of a bug or have a feature request, open a new Issue.
 
 # Using ChampSim
