@@ -26,6 +26,9 @@
 #include <fmt/core.h>
 #include <fmt/ranges.h>
 
+#include <iostream>
+#include <random>
+
 #include "champsim.h"
 #include "champsim_constants.h"
 #include "instruction.h"
@@ -69,8 +72,82 @@ CACHE::mshr_type CACHE::mshr_type::merge(mshr_type predecessor, mshr_type succes
   return retval;
 }
 
+CACHE::Invincible_Controller::Invincible_Controller(const uint32_t num_set, const uint32_t num_way)
+      : invincible_bits(num_set), cartels()
+{
+  for (uint32_t set = 0; set < num_set; ++set) {
+    cartels[set] = std::vector<uint32_t>(num_way, -1);
+  }
+}
+
+bool CACHE::is_invincible(uint64_t address) {
+  auto [set_begin, set_end] = get_set_span(address);
+  assert(is_set_full(address));
+  return set_begin->invincible;
+}
+
+bool CACHE::is_set_full(uint64_t address) {
+  auto [set_begin, set_end] = get_set_span(address);
+  auto way = std::find_if_not(set_begin, set_end, [](auto x) { return x.valid; });
+  if (way == set_end) {
+    return true;
+  }
+  return false;
+}
+
+bool CACHE::is_in_cartel(request_type req) {
+  auto [set_begin, set_end] = get_set_span(req.address);
+  assert(is_invincible(set_begin->address));
+  auto way = std::find_if(set_begin, set_end, [req](auto x) { return x.cpu == req.cpu; });
+  if(way == set_end) {
+    return false;
+  }
+  return true;
+}
+
+void CACHE::make_invincible(uint64_t address) {
+  assert(!is_invincible(address));
+  auto [set_begin, set_end] = get_set_span(address);
+  for(auto it = set_begin; it != set_end; it++) {
+    it->invincible = true;
+  }
+}
+
+void CACHE::free_invincible(uint64_t address) {
+  assert(is_invincible(address));
+  auto [set_begin, set_end] = get_set_span(address);
+  for(auto it = set_begin; it != set_end; it++) {
+    it->invincible = false;
+  }
+}
+
+void CACHE::random_free_invincible(void) {
+  std::random_device rd;
+  std::mt19937 mt_set(rd());
+  std::mt19937 mt_way(rd());
+  std::uniform_int_distribution<uint32_t> set_distribution(0, NUM_SET-1);
+  std::uniform_int_distribution<uint32_t> way_distribution(0, NUM_WAY-1);
+  uint32_t random_set = set_distribution(mt_set);
+  uint32_t random_way = way_distribution(mt_way);
+
+  auto set_begin = std::next(std::begin(block), random_set * NUM_WAY);
+  auto set_end = std::next(set_begin, NUM_WAY);
+  set_begin = std::move(set_begin);
+  //auto [set_begin, set_end] = get_span(std::begin(block), static_cast<std::vector<BLOCK>::difference_type>(random_set), NUM_WAY);
+  if(is_invincible(set_begin->address)) {
+    free_invincible(set_begin->address);
+    auto it = set_begin;
+    for(uint32_t i=0; i<random_way; i++) {
+      it++;
+    }
+    assert(set_begin <= it && it <= set_end);
+    invalidate_entry(*it);
+  }
+}
+
 CACHE::BLOCK::BLOCK(const mshr_type& mshr)
-    : valid(true), prefetch(mshr.prefetch_from_this), dirty(mshr.type == access_type::WRITE), address(mshr.address), v_address(mshr.v_address), data(mshr.data_promise->data),
+    : valid(true), prefetch(mshr.prefetch_from_this), dirty(mshr.type == access_type::WRITE), invincible(false), 
+      cpu(mshr.cpu), address(mshr.address), v_address(mshr.v_address), data(mshr.data_promise->data),
       inclusive_evict(mshr.inclusive_evict)
 {
 }
@@ -98,7 +175,6 @@ uint64_t CACHE::module_address(const T& element) const
 bool CACHE::handle_fill(const mshr_type& fill_mshr)
 {
   cpu = fill_mshr.cpu;
-
   // find victim
   auto [set_begin, set_end] = get_set_span(fill_mshr.address);
   auto way = std::find_if_not(set_begin, set_end, [](auto x) { return x.valid; });
@@ -174,16 +250,23 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
   response_type response{fill_mshr.address, fill_mshr.v_address, fill_mshr.data_promise->data, metadata_thru, fill_mshr.instr_depend_on_me};
   std::for_each(std::begin(fill_mshr.to_return), std::end(fill_mshr.to_return), channel_type::returner_for(std::move(response)));
 
+  //
+
   return true;
 }
 
 bool CACHE::try_hit(const tag_lookup_type& handle_pkt)
 {
   cpu = handle_pkt.cpu;
-
+  // bool is_cartel = false;
   // access cache
   auto [set_begin, set_end] = get_set_span(handle_pkt.address);
   auto way = std::find_if(set_begin, set_end, in_set_finder(handle_pkt.address));
+  // if(set_begin->invincible) {
+  //   auto find_cartel = std::find_if(set_begin, set_end, [cpu = handle_pkt.cpu](auto x) { return (x.cpu == cpu); });
+  //   if(find_cartel != set_end)
+  //     is_cartel = true;
+  // }
   const auto hit = (way != set_end);
   const auto useful_prefetch = (hit && way->prefetch && !handle_pkt.prefetch_from_this);
 

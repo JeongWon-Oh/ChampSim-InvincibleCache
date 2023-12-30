@@ -36,6 +36,10 @@
 #include <utility> // for pair
 #include <vector>
 
+#include <iostream>
+#include <map>
+#include <random>
+
 #include "cache_builder.h"
 #include "champsim_constants.h"
 #include "channel.h"
@@ -53,6 +57,10 @@ struct cache_stats {
   uint64_t pf_useful = 0;
   uint64_t pf_useless = 0;
   uint64_t pf_fill = 0;
+  uint64_t invincible_activated = 0;
+  uint64_t invincible_freed = 0;
+  uint64_t invincible_blocked_read = 0;
+  uint64_t invincible_blocked_write = 0;
 
   std::array<std::array<uint64_t, NUM_CPUS>, champsim::to_underlying(access_type::NUM_TYPES)> hits = {};
   std::array<std::array<uint64_t, NUM_CPUS>, champsim::to_underlying(access_type::NUM_TYPES)> misses = {};
@@ -138,10 +146,26 @@ class CACHE : public champsim::operable
 
   void issue_translation(tag_lookup_type& q_entry);
 
+  struct Invincible_Controller {
+    std::vector<bool> invincible_bits;
+    std::map<uint32_t, std::vector<uint32_t>> cartels;
+    
+    // bool is_invincible(uint64_t address);
+    // bool is_set_full(uint64_t address);
+    // void make_invincible(uint64_t address);
+    // void free_invincible(uint64_t address);
+    // void random_free_invincible(uint64_t address);
+
+    explicit Invincible_Controller(const uint32_t num_set, const uint32_t num_way);
+  };
+
   struct BLOCK {
     bool valid = false;
     bool prefetch = false;
     bool dirty = false;
+
+    bool invincible = false;
+    uint32_t cpu = 0;
 
     uint64_t address = 0;
     uint64_t v_address = 0;
@@ -234,6 +258,14 @@ public:
   uint64_t invalidate_entry(uint64_t inval_addr);
   void invalidate_entry(BLOCK& inval_block);
   bool prefetch_line(uint64_t pf_addr, bool fill_this_level, uint32_t prefetch_metadata);
+  // void make_invincible(uint64_t address);
+  // void free_invincible(uint64_t address);
+  bool is_invincible(uint64_t address);
+  bool is_set_full(uint64_t address);
+  bool is_in_cartel(request_type req);
+  void make_invincible(uint64_t address);
+  void free_invincible(uint64_t address);
+  void random_free_invincible(void);
 
   [[deprecated("Use CACHE::prefetch_line(pf_addr, fill_this_level, prefetch_metadata) instead.")]] bool
   prefetch_line(uint64_t ip, uint64_t base_addr, uint64_t pf_addr, bool fill_this_level, uint32_t prefetch_metadata);

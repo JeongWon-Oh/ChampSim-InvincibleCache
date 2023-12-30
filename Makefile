@@ -40,7 +40,7 @@ $(filter-out test, $(sort $(dirs))): | $(dir $@)
 
 # All .o files should be made like .cc files
 $(objs):
-	$(CXX) $(addprefix @,$(filter %.options, $^)) $(CPPFLAGS) $(CXXFLAGS) -c -o $@ $(filter %.cc, $^)
+	$(CXX) $(addprefix @,$(filter %.options, $^)) -g $(CPPFLAGS) $(CXXFLAGS) -c -o $@ $(filter %.cc, $^)
 
 # Link test executable
 $(test_main_name): CXXFLAGS += -g3 -Og -Wconversion
@@ -50,7 +50,7 @@ $(test_main_name):
 
 # Link main executables
 $(filter-out $(test_main_name), $(executable_name)):
-	$(LINK.cc) $(LDFLAGS) -o $@ $^ $(LOADLIBES) $(LDLIBS)
+	$(LINK.cc) -g $(LDFLAGS) -o $@ $^ $(LOADLIBES) $(LDLIBS)
 
 # Tests: build and run
 test: $(test_main_name)
