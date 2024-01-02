@@ -1,7 +1,39 @@
 {
-  // Use IntelliSense to learn about possible attributes.
-  // Hover to view descriptions of existing attributes.
-  // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
   "version": "0.2.0",
-  "configurations": []
+  "configurations": [
+    {
+      "name": "(gdb) Launch",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "/home/jeongwon/ChampSim-InvincibleCache/bin/champsim",
+      "args": [
+        "--warmup-instructions",
+        "20000",
+        "--simulation-instructions",
+        "50000",
+        "/public/champsim/dp3_traces/600.perlbench_s-570B.champsimtrace.xz",
+        "/public/champsim/dp3_traces/602.gcc_s-1850B.champsimtrace.xz",
+        "/public/champsim/dp3_traces/638.imagick_s-824B.champsimtrace.xz",
+        "/public/champsim/dp3_traces/654.roms_s-1007B.champsimtrace.xz"
+      ],
+      "stopAtEntry": false,
+      "cwd": "/home/jeongwon/ChampSim-InvincibleCache", // Set the working directory as needed
+      "environment": [],
+      "externalConsole": false,
+      "MIMode": "gdb",
+      "miDebuggerPath": "/usr/bin/gdb",
+      "setupCommands": [
+        {
+          "description": "Enable pretty-printing for gdb",
+          "text": "-enable-pretty-printing",
+          "ignoreFailures": true
+        },
+        {
+          "description": "Set Disassembly Flavor to Intel",
+          "text": "-gdb-set disassembly-flavor intel",
+          "ignoreFailures": true
+        }
+      ]
+    }
+  ]
 }

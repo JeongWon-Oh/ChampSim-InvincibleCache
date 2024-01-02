@@ -72,17 +72,16 @@ CACHE::mshr_type CACHE::mshr_type::merge(mshr_type predecessor, mshr_type succes
   return retval;
 }
 
-CACHE::Invincible_Controller::Invincible_Controller(const uint32_t num_set, const uint32_t num_way)
-      : invincible_bits(num_set), cartels()
-{
-  for (uint32_t set = 0; set < num_set; ++set) {
-    cartels[set] = std::vector<uint32_t>(num_way, -1);
-  }
-}
+// CACHE::Invincible_Controller::Invincible_Controller(const uint32_t num_set, const uint32_t num_way)
+//       : invincible_bits(num_set), cartels()
+// {
+//   for (uint32_t set = 0; set < num_set; ++set) {
+//     cartels[set] = std::vector<uint32_t>(num_way, -1);
+//   }
+// }
 
 bool CACHE::is_invincible(uint64_t address) {
   auto [set_begin, set_end] = get_set_span(address);
-  assert(is_set_full(address));
   return set_begin->invincible;
 }
 
@@ -95,10 +94,10 @@ bool CACHE::is_set_full(uint64_t address) {
   return false;
 }
 
-bool CACHE::is_in_cartel(request_type req) {
-  auto [set_begin, set_end] = get_set_span(req.address);
-  assert(is_invincible(set_begin->address));
-  auto way = std::find_if(set_begin, set_end, [req](auto x) { return x.cpu == req.cpu; });
+bool CACHE::is_in_cartel(const mshr_type& msh) {
+  auto [set_begin, set_end] = get_set_span(msh.address);
+  //assert(is_invincible(set_begin->address));
+  auto way = std::find_if(set_begin, set_end, [msh](auto x) { return x.cpu == msh.cpu; });
   if(way == set_end) {
     return false;
   }
@@ -106,7 +105,8 @@ bool CACHE::is_in_cartel(request_type req) {
 }
 
 void CACHE::make_invincible(uint64_t address) {
-  assert(!is_invincible(address));
+  //assert(!is_invincible(address));
+  std::cout << "make_invincible()" << std::endl;
   auto [set_begin, set_end] = get_set_span(address);
   for(auto it = set_begin; it != set_end; it++) {
     it->invincible = true;
@@ -114,7 +114,8 @@ void CACHE::make_invincible(uint64_t address) {
 }
 
 void CACHE::free_invincible(uint64_t address) {
-  assert(is_invincible(address));
+  //assert(is_invincible(address));
+  std::cout << "free_invincible()" << std::endl;
   auto [set_begin, set_end] = get_set_span(address);
   for(auto it = set_begin; it != set_end; it++) {
     it->invincible = false;
@@ -142,6 +143,7 @@ void CACHE::random_free_invincible(void) {
     }
     assert(set_begin <= it && it <= set_end);
     invalidate_entry(*it);
+    std::cout << "random_free_invincible()" << std::endl;
   }
 }
 
@@ -174,10 +176,19 @@ uint64_t CACHE::module_address(const T& element) const
 
 bool CACHE::handle_fill(const mshr_type& fill_mshr)
 {
+  bool is_llc = (NAME == "LLC");
+  bool is_inv = false;
+  bool is_cartel = true;
   cpu = fill_mshr.cpu;
   // find victim
   auto [set_begin, set_end] = get_set_span(fill_mshr.address);
   auto way = std::find_if_not(set_begin, set_end, [](auto x) { return x.valid; });
+  is_inv = is_llc && is_invincible(set_begin->address);
+  is_cartel = is_in_cartel(fill_mshr);
+  if(is_inv && !is_cartel) {
+    std::cout << "invincible write miss" << std::endl;
+    return false;
+  }
   if (way == set_end) {
     way = std::next(set_begin, impl_find_victim(fill_mshr.cpu, fill_mshr.instr_id, get_set_index(fill_mshr.address), &*set_begin, fill_mshr.ip,
                                                 fill_mshr.address, champsim::to_underlying(fill_mshr.type)));
@@ -214,6 +225,9 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
     auto success = lower_level->add_wq(writeback_packet);
     if (!success) {
       return false;
+    }
+    if(is_set_full(writeback_packet.address && !is_invincible(writeback_packet.address))) {
+      make_invincible(writeback_packet.address);
     }
   }
 
@@ -258,16 +272,27 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
 bool CACHE::try_hit(const tag_lookup_type& handle_pkt)
 {
   cpu = handle_pkt.cpu;
-  // bool is_cartel = false;
+  bool is_invincible = false;
+  bool is_cartel = true;
   // access cache
   auto [set_begin, set_end] = get_set_span(handle_pkt.address);
   auto way = std::find_if(set_begin, set_end, in_set_finder(handle_pkt.address));
-  // if(set_begin->invincible) {
-  //   auto find_cartel = std::find_if(set_begin, set_end, [cpu = handle_pkt.cpu](auto x) { return (x.cpu == cpu); });
-  //   if(find_cartel != set_end)
-  //     is_cartel = true;
-  // }
-  const auto hit = (way != set_end);
+  if(NAME == "LLC") {
+    is_invincible = set_begin->invincible;
+    if(is_invincible) {
+      auto find_cartel = std::find_if(set_begin, set_end, [cpu = handle_pkt.cpu](auto x) { return (x.cpu == cpu); });
+      if(find_cartel != set_end)
+        is_cartel = true;
+      else
+        is_cartel = false;
+    }
+  }
+  bool can_access = !is_invincible || (is_cartel && is_invincible);
+  if(!can_access) {
+    std::cout << "invincible read miss" << std::endl;
+  }
+  const auto hit = can_access && (way != set_end);
+  // const auto hit = way != set_end;
   const auto useful_prefetch = (hit && way->prefetch && !handle_pkt.prefetch_from_this);
 
   if constexpr (champsim::debug_print) {
@@ -400,6 +425,13 @@ bool CACHE::handle_write(const tag_lookup_type& handle_pkt)
   }
 
   mshr_type to_allocate{handle_pkt, current_cycle};
+
+  if(NAME == "LLC") {
+    if(is_invincible(handle_pkt.address) && !is_in_cartel(to_allocate)) {
+      return false;
+    }
+  }
+
   to_allocate.data_promise.ready_at(current_cycle + (warmup ? 0 : FILL_LATENCY));
   inflight_writes.push_back(to_allocate);
 
@@ -438,6 +470,12 @@ auto CACHE::initiate_tag_check(champsim::channel* ul)
 
 void CACHE::operate()
 {
+  // std::cout << "operate()" << std::endl;
+  // bool is_llc = (NAME == "LLC");
+  if(NAME=="LLC") {
+    random_free_invincible();
+  }
+
   auto is_ready = [cycle = current_cycle](const auto& entry) {
     return entry.event_cycle <= cycle;
   };

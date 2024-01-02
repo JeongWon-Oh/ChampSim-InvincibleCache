@@ -19,12 +19,12 @@ uint32_t CACHE::find_victim(uint32_t triggering_cpu, uint64_t instr_id, uint32_t
   auto begin = std::next(std::begin(::last_used_cycles[this]), set * NUM_WAY);
   auto end = std::next(begin, NUM_WAY);
 
-  std::cout << "name " << NAME << std::endl;
-  std::cout << "num_set " << NUM_SET << std::endl;
-  //std::cout << block(0) << std::endl;
-  std::cout << "NUM_WAY " << NUM_WAY << std::endl;
-  std::cout << "MSHR_SIZE " << MSHR_SIZE << std::endl;
-  std::cout << "offset bits " << OFFSET_BITS << std::endl;
+  // std::cout << "name " << NAME << std::endl;
+  // std::cout << "num_set " << NUM_SET << std::endl;
+  // //std::cout << block(0) << std::endl;
+  // std::cout << "NUM_WAY " << NUM_WAY << std::endl;
+  // std::cout << "MSHR_SIZE " << MSHR_SIZE << std::endl;
+  // std::cout << "offset bits " << OFFSET_BITS << std::endl;
 
   // Find the way whose last use cycle is most distant
   auto victim = std::min_element(begin, end);

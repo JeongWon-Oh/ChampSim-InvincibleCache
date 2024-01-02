@@ -146,18 +146,18 @@ class CACHE : public champsim::operable
 
   void issue_translation(tag_lookup_type& q_entry);
 
-  struct Invincible_Controller {
-    std::vector<bool> invincible_bits;
-    std::map<uint32_t, std::vector<uint32_t>> cartels;
+  // struct Invincible_Controller {
+  //   std::vector<bool> invincible_bits;
+  //   std::map<uint32_t, std::vector<uint32_t>> cartels;
     
-    // bool is_invincible(uint64_t address);
-    // bool is_set_full(uint64_t address);
-    // void make_invincible(uint64_t address);
-    // void free_invincible(uint64_t address);
-    // void random_free_invincible(uint64_t address);
+  //   // bool is_invincible(uint64_t address);
+  //   // bool is_set_full(uint64_t address);
+  //   // void make_invincible(uint64_t address);
+  //   // void free_invincible(uint64_t address);
+  //   // void random_free_invincible(uint64_t address);
 
-    explicit Invincible_Controller(const uint32_t num_set, const uint32_t num_way);
-  };
+  //   explicit Invincible_Controller(const uint32_t num_set, const uint32_t num_way);
+  // };
 
   struct BLOCK {
     bool valid = false;
@@ -262,7 +262,7 @@ public:
   // void free_invincible(uint64_t address);
   bool is_invincible(uint64_t address);
   bool is_set_full(uint64_t address);
-  bool is_in_cartel(request_type req);
+  bool is_in_cartel(const mshr_type& msh);
   void make_invincible(uint64_t address);
   void free_invincible(uint64_t address);
   void random_free_invincible(void);
