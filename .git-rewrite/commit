@@ -1,0 +1,6 @@
+tree 258b46b87bf78143f7cc1c256a258dbcb3729f28
+parent d7457a48ecd41de35d6057c5a9058897c2ca8689
+author Nathan Gober <ngober@protonmail.com> 1673573000 -0600
+committer Nathan Gober <ngober@protonmail.com> 1673573388 -0600
+
+Fixed multiline workflow commands
