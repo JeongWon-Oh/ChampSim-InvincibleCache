@@ -106,7 +106,7 @@ bool CACHE::is_in_cartel(const mshr_type& msh) {
 
 void CACHE::make_invincible(uint64_t address) {
   //assert(!is_invincible(address));
-  std::cout << "make_invincible()" << std::endl;
+  // std::cout << "make_invincible()" << std::endl;
   auto [set_begin, set_end] = get_set_span(address);
   for(auto it = set_begin; it != set_end; it++) {
     it->invincible = true;
@@ -115,7 +115,7 @@ void CACHE::make_invincible(uint64_t address) {
 
 void CACHE::free_invincible(uint64_t address) {
   //assert(is_invincible(address));
-  std::cout << "free_invincible()" << std::endl;
+  // std::cout << "free_invincible()" << std::endl;
   auto [set_begin, set_end] = get_set_span(address);
   for(auto it = set_begin; it != set_end; it++) {
     it->invincible = false;
@@ -143,7 +143,7 @@ void CACHE::random_free_invincible(void) {
     }
     assert(set_begin <= it && it <= set_end);
     invalidate_entry(*it);
-    std::cout << "random_free_invincible()" << std::endl;
+    // std::cout << "random_free_invincible()" << std::endl;
   }
 }
 
@@ -288,7 +288,7 @@ bool CACHE::try_hit(const tag_lookup_type& handle_pkt)
     }
   }
   bool can_access = !is_invincible || (is_cartel && is_invincible);
-  if(!can_access) {
+  if(!can_access && (way != set_end)) {
     std::cout << "invincible read miss" << std::endl;
   }
   const auto hit = can_access && (way != set_end);
