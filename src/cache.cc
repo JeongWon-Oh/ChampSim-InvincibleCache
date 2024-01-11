@@ -94,7 +94,7 @@ bool CACHE::is_set_full(uint64_t address) {
   return false;
 }
 
-bool CACHE::is_in_cartel(const mshr_type& msh) {
+bool CACHE::is_in_cartel(const mshr_type& msh) { //change input to tag_lookup_type&
   auto [set_begin, set_end] = get_set_span(msh.address);
   //assert(is_invincible(set_begin->address));
   auto way = std::find_if(set_begin, set_end, [msh](auto x) { return x.cpu == msh.cpu; });
@@ -106,7 +106,7 @@ bool CACHE::is_in_cartel(const mshr_type& msh) {
 
 void CACHE::make_invincible(uint64_t address) {
   //assert(!is_invincible(address));
-  // std::cout << "make_invincible()" << std::endl;
+  std::cout << "make_invincible()" << std::endl;
   auto [set_begin, set_end] = get_set_span(address);
   for(auto it = set_begin; it != set_end; it++) {
     it->invincible = true;
@@ -115,7 +115,7 @@ void CACHE::make_invincible(uint64_t address) {
 
 void CACHE::free_invincible(uint64_t address) {
   //assert(is_invincible(address));
-  // std::cout << "free_invincible()" << std::endl;
+  std::cout << "free_invincible()" << std::endl;
   auto [set_begin, set_end] = get_set_span(address);
   for(auto it = set_begin; it != set_end; it++) {
     it->invincible = false;
@@ -183,9 +183,11 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
   // find victim
   auto [set_begin, set_end] = get_set_span(fill_mshr.address);
   auto way = std::find_if_not(set_begin, set_end, [](auto x) { return x.valid; });
-  is_inv = is_llc && is_invincible(set_begin->address);
-  is_cartel = is_in_cartel(fill_mshr);
-  if(is_inv && !is_cartel) {
+  is_inv = is_invincible(set_begin->address);
+  if(is_inv)
+    is_cartel = is_in_cartel(fill_mshr);
+  //std::cout << "handle_fill cpu: " << fill_mshr.cpu << " is_llc " << is_llc << " is_inv " << is_inv << " is_catel " << is_cartel << std::endl;
+  if(is_llc && is_inv && !is_cartel) {
     std::cout << "invincible write miss" << std::endl;
     return false;
   }
@@ -226,7 +228,7 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
     if (!success) {
       return false;
     }
-    if(is_set_full(writeback_packet.address && !is_invincible(writeback_packet.address))) {
+    if(is_llc && is_set_full(writeback_packet.address) && !is_invincible(writeback_packet.address)) {
       make_invincible(writeback_packet.address);
     }
   }
@@ -266,28 +268,46 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
 
   //
 
+  if(is_llc && is_set_full(fill_mshr.address) && !is_invincible(fill_mshr.address)) {
+      make_invincible(fill_mshr.address);
+  }
+
   return true;
 }
 
 bool CACHE::try_hit(const tag_lookup_type& handle_pkt)
 {
   cpu = handle_pkt.cpu;
+  if(cpu)
+    std::cout << "try_hit, cpu: " << cpu << std::endl;
+  bool is_llc = (NAME == "LLC");
   bool is_invincible = false;
   bool is_cartel = true;
   // access cache
   auto [set_begin, set_end] = get_set_span(handle_pkt.address);
   auto way = std::find_if(set_begin, set_end, in_set_finder(handle_pkt.address));
-  if(NAME == "LLC") {
+  if(is_llc) {
+    std::cout << "is_llc" << std::endl;
+    if(way == set_end)
+      std::cout << "not found in set" << std::endl;
+    else
+      std::cout << "found in set" << std::endl;
     is_invincible = set_begin->invincible;
     if(is_invincible) {
-      auto find_cartel = std::find_if(set_begin, set_end, [cpu = handle_pkt.cpu](auto x) { return (x.cpu == cpu); });
-      if(find_cartel != set_end)
+      std::cout << "is_invincible" << std::endl;
+      auto find_cartel = std::find_if(set_begin, set_end, [cpu_ = handle_pkt.cpu](auto x) { return (x.cpu == cpu_); });
+      if(find_cartel != set_end) {
         is_cartel = true;
-      else
+        std::cout << "is_cartel" << std::endl;
+      }
+      else {
         is_cartel = false;
+        std::cout << "is_not_cartel" << std::endl;
+      }
     }
   }
   bool can_access = !is_invincible || (is_cartel && is_invincible);
+  //std::cout << "can_access " << can_access << "way!=set_end " << (way != set_end) << std::endl;
   if(!can_access && (way != set_end)) {
     std::cout << "invincible read miss" << std::endl;
   }
@@ -471,9 +491,9 @@ auto CACHE::initiate_tag_check(champsim::channel* ul)
 void CACHE::operate()
 {
   // std::cout << "operate()" << std::endl;
-  // bool is_llc = (NAME == "LLC");
-  if(NAME=="LLC") {
-    random_free_invincible();
+  bool is_llc = (NAME == "LLC");
+  if(is_llc) {
+    //random_free_invincible();
   }
 
   auto is_ready = [cycle = current_cycle](const auto& entry) {
@@ -543,6 +563,11 @@ void CACHE::operate()
 
   // Perform tag checks
   auto do_tag_check = [this](const auto& pkt) {
+    //bypass cache access if invincible and not in cartel
+    if(is_llc && is_invincible(pkt.address) && !is_in_cartel(pkt)) {
+      //directly access DRAM
+      if (pkt.type == access_type::WRITE && !this->match_offset_bits)
+    }
     if (this->try_hit(pkt)) {
       return true;
     }

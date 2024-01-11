@@ -165,7 +165,7 @@ class CACHE : public champsim::operable
     bool dirty = false;
 
     bool invincible = false;
-    uint32_t cpu = 0;
+    uint32_t cpu;
 
     uint64_t address = 0;
     uint64_t v_address = 0;
