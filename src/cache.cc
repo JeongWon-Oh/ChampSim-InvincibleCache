@@ -38,14 +38,15 @@
 
 CACHE::tag_lookup_type::tag_lookup_type(const request_type& req, bool local_pref, bool skip)
     : address(req.address), v_address(req.v_address), data(req.data), ip(req.ip), instr_id(req.instr_id), pf_metadata(req.pf_metadata), cpu(req.cpu),
-      type(req.type), clusivity(req.clusivity), prefetch_from_this(local_pref), skip_fill(skip), is_translated(req.is_translated),
+      type(req.type), clusivity(req.clusivity), invincible_bypass(req.invincible_bypass), prefetch_from_this(local_pref), skip_fill(skip), is_translated(req.is_translated),
       instr_depend_on_me(req.instr_depend_on_me)
 {
 }
 
 CACHE::mshr_type::mshr_type(const tag_lookup_type& req, uint64_t cycle)
     : address(req.address), v_address(req.v_address), ip(req.ip), instr_id(req.instr_id), cpu(req.cpu),
-      type(req.type), clusivity(req.clusivity), prefetch_from_this(req.prefetch_from_this), cycle_enqueued(cycle), instr_depend_on_me(req.instr_depend_on_me),
+      type(req.type), clusivity(req.clusivity), invincible_bypass(req.invincible_bypass), prefetch_from_this(req.prefetch_from_this),
+      cycle_enqueued(cycle), instr_depend_on_me(req.instr_depend_on_me),
       to_return(req.to_return), inclusive_evict(req.inclusive_evict)
 {
 }
@@ -71,14 +72,6 @@ CACHE::mshr_type CACHE::mshr_type::merge(mshr_type predecessor, mshr_type succes
 
   return retval;
 }
-
-// CACHE::Invincible_Controller::Invincible_Controller(const uint32_t num_set, const uint32_t num_way)
-//       : invincible_bits(num_set), cartels()
-// {
-//   for (uint32_t set = 0; set < num_set; ++set) {
-//     cartels[set] = std::vector<uint32_t>(num_way, -1);
-//   }
-// }
 
 bool CACHE::is_invincible(uint64_t address) {
   auto [set_begin, set_end] = get_set_span(address);
@@ -176,21 +169,10 @@ uint64_t CACHE::module_address(const T& element) const
 
 bool CACHE::handle_fill(const mshr_type& fill_mshr)
 {
-  bool is_llc = (NAME == "LLC");
-  bool is_inv = false;
-  bool is_cartel = true;
   cpu = fill_mshr.cpu;
   // find victim
   auto [set_begin, set_end] = get_set_span(fill_mshr.address);
   auto way = std::find_if_not(set_begin, set_end, [](auto x) { return x.valid; });
-  is_inv = is_invincible(set_begin->address);
-  if(is_inv)
-    is_cartel = is_in_cartel(fill_mshr);
-  //std::cout << "handle_fill cpu: " << fill_mshr.cpu << " is_llc " << is_llc << " is_inv " << is_inv << " is_catel " << is_cartel << std::endl;
-  if(is_llc && is_inv && !is_cartel) {
-    std::cout << "invincible write miss" << std::endl;
-    return false;
-  }
   if (way == set_end) {
     way = std::next(set_begin, impl_find_victim(fill_mshr.cpu, fill_mshr.instr_id, get_set_index(fill_mshr.address), &*set_begin, fill_mshr.ip,
                                                 fill_mshr.address, champsim::to_underlying(fill_mshr.type)));
@@ -228,9 +210,6 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
     if (!success) {
       return false;
     }
-    if(is_llc && is_set_full(writeback_packet.address) && !is_invincible(writeback_packet.address)) {
-      make_invincible(writeback_packet.address);
-    }
   }
 
   uint64_t evicting_address = 0;
@@ -266,53 +245,16 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
   response_type response{fill_mshr.address, fill_mshr.v_address, fill_mshr.data_promise->data, metadata_thru, fill_mshr.instr_depend_on_me};
   std::for_each(std::begin(fill_mshr.to_return), std::end(fill_mshr.to_return), channel_type::returner_for(std::move(response)));
 
-  //
-
-  if(is_llc && is_set_full(fill_mshr.address) && !is_invincible(fill_mshr.address)) {
-      make_invincible(fill_mshr.address);
-  }
-
   return true;
 }
 
 bool CACHE::try_hit(const tag_lookup_type& handle_pkt)
 {
   cpu = handle_pkt.cpu;
-  if(cpu)
-    std::cout << "try_hit, cpu: " << cpu << std::endl;
-  bool is_llc = (NAME == "LLC");
-  bool is_invincible = false;
-  bool is_cartel = true;
   // access cache
   auto [set_begin, set_end] = get_set_span(handle_pkt.address);
   auto way = std::find_if(set_begin, set_end, in_set_finder(handle_pkt.address));
-  if(is_llc) {
-    std::cout << "is_llc" << std::endl;
-    if(way == set_end)
-      std::cout << "not found in set" << std::endl;
-    else
-      std::cout << "found in set" << std::endl;
-    is_invincible = set_begin->invincible;
-    if(is_invincible) {
-      std::cout << "is_invincible" << std::endl;
-      auto find_cartel = std::find_if(set_begin, set_end, [cpu_ = handle_pkt.cpu](auto x) { return (x.cpu == cpu_); });
-      if(find_cartel != set_end) {
-        is_cartel = true;
-        std::cout << "is_cartel" << std::endl;
-      }
-      else {
-        is_cartel = false;
-        std::cout << "is_not_cartel" << std::endl;
-      }
-    }
-  }
-  bool can_access = !is_invincible || (is_cartel && is_invincible);
-  //std::cout << "can_access " << can_access << "way!=set_end " << (way != set_end) << std::endl;
-  if(!can_access && (way != set_end)) {
-    std::cout << "invincible read miss" << std::endl;
-  }
-  const auto hit = can_access && (way != set_end);
-  // const auto hit = way != set_end;
+  const auto hit = way != set_end;
   const auto useful_prefetch = (hit && way->prefetch && !handle_pkt.prefetch_from_this);
 
   if constexpr (champsim::debug_print) {
@@ -373,6 +315,7 @@ auto CACHE::mshr_and_forward_packet(const tag_lookup_type& handle_pkt) -> std::p
 
   fwd_pkt.instr_depend_on_me = handle_pkt.instr_depend_on_me;
   fwd_pkt.response_requested = (!handle_pkt.prefetch_from_this || !handle_pkt.skip_fill);
+  fwd_pkt.invincible_bypass = handle_pkt.invincible_bypass;
 
   return std::pair{std::move(to_allocate), std::move(fwd_pkt)};
 }
@@ -446,11 +389,82 @@ bool CACHE::handle_write(const tag_lookup_type& handle_pkt)
 
   mshr_type to_allocate{handle_pkt, current_cycle};
 
-  if(NAME == "LLC") {
-    if(is_invincible(handle_pkt.address) && !is_in_cartel(to_allocate)) {
+  to_allocate.data_promise.ready_at(current_cycle + (warmup ? 0 : FILL_LATENCY));
+  inflight_writes.push_back(to_allocate);
+
+  ++sim_stats.misses.at(champsim::to_underlying(handle_pkt.type)).at(handle_pkt.cpu);
+
+  return true;
+}
+
+bool CACHE::handle_invincible_miss(const tag_lookup_type& handle_pkt)
+{
+  if constexpr (champsim::debug_print) {
+    fmt::print("[{}] {} instr_id: {} address: {:#x} v_address: {:#x} type: {} local_prefetch: {} cycle: {}\n", NAME, __func__, handle_pkt.instr_id,
+               handle_pkt.address, handle_pkt.v_address, access_type_names.at(champsim::to_underlying(handle_pkt.type)), handle_pkt.prefetch_from_this,
+               current_cycle);
+  }
+
+  mshr_type to_allocate{handle_pkt, current_cycle};
+
+  cpu = handle_pkt.cpu;
+
+  auto mshr_pkt = mshr_and_forward_packet(handle_pkt);
+
+  // check mshr
+  auto mshr_entry = std::find_if(std::begin(MSHR), std::end(MSHR), matches_address(handle_pkt.address));
+  bool mshr_full = (MSHR.size() == MSHR_SIZE);
+
+  if (mshr_entry != MSHR.end()) // miss already inflight
+  {
+    if (mshr_entry->type == access_type::PREFETCH && handle_pkt.type != access_type::PREFETCH) {
+      // Mark the prefetch as useful
+      if (mshr_entry->prefetch_from_this) {
+        ++sim_stats.pf_useful;
+      }
+    }
+
+    *mshr_entry = mshr_type::merge(*mshr_entry, to_allocate);
+  } else {
+    if (mshr_full) { // not enough MSHR resource
+      if constexpr (champsim::debug_print) {
+        fmt::print("[{}] {} MSHR full\n", NAME, __func__);
+      }
+
+      return false; // TODO should we allow prefetches anyway if they will not be filled to this level?
+    }
+
+    const bool send_to_rq = (prefetch_as_load || handle_pkt.type != access_type::PREFETCH);
+    bool success = send_to_rq ? lower_level->add_rq(mshr_pkt.second) : lower_level->add_pq(mshr_pkt.second);
+
+    if (!success) {
+      if constexpr (champsim::debug_print) {
+        fmt::print("[{}] {} could not send to lower\n", NAME, __func__);
+      }
+
       return false;
     }
+
+    // Allocate an MSHR
+    if (mshr_pkt.second.response_requested) {
+      MSHR.emplace_back(std::move(mshr_pkt.first));
+    }
   }
+
+  ++sim_stats.misses.at(champsim::to_underlying(handle_pkt.type)).at(handle_pkt.cpu);
+
+  return true;
+}
+
+bool CACHE::handle_invincible_write(const tag_lookup_type& handle_pkt)
+{
+  if constexpr (champsim::debug_print) {
+    fmt::print("[{}] {} instr_id: {} address: {:#x} v_address: {:#x} type: {} local_prefetch: {} cycle: {}\n", NAME, __func__, handle_pkt.instr_id,
+               handle_pkt.address, handle_pkt.v_address, access_type_names.at(champsim::to_underlying(handle_pkt.type)), handle_pkt.prefetch_from_this,
+               current_cycle);
+  }
+
+  mshr_type to_allocate{handle_pkt, current_cycle};
 
   to_allocate.data_promise.ready_at(current_cycle + (warmup ? 0 : FILL_LATENCY));
   inflight_writes.push_back(to_allocate);
@@ -562,11 +576,20 @@ void CACHE::operate()
   inflight_tag_check.erase(last_not_missed, std::end(inflight_tag_check));
 
   // Perform tag checks
-  auto do_tag_check = [this](const auto& pkt) {
+  auto do_tag_check = [this, is_llc](const auto& pkt) {
     //bypass cache access if invincible and not in cartel
-    if(is_llc && is_invincible(pkt.address) && !is_in_cartel(pkt)) {
-      //directly access DRAM
-      if (pkt.type == access_type::WRITE && !this->match_offset_bits)
+    if(is_llc) {
+      if(this->is_invincible(pkt.address) && !this->is_in_cartel(pkt)) {
+        //pkt.invincible_bypass = true;
+        //directly access DRAM
+        if(pkt.type == access_type::WRITE) {
+          // WRITE to main memory, no response required
+          return this->handle_invincible_write(pkt);
+        } else {
+          // Read request to main memory, forward responce to cpu (bypass cache hierarchy)
+          return this->handle_invincible_miss(pkt);
+        }
+      }
     }
     if (this->try_hit(pkt)) {
       return true;

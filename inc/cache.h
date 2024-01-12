@@ -91,6 +91,7 @@ class CACHE : public champsim::operable
 
     access_type type;
     champsim::inclusivity clusivity{champsim::inclusivity::weak};
+    bool invincible_bypass;
     bool prefetch_from_this;
     bool skip_fill;
     bool is_translated;
@@ -123,6 +124,7 @@ class CACHE : public champsim::operable
 
     access_type type;
     champsim::inclusivity clusivity{champsim::inclusivity::weak};
+    bool invincible_bypass = false;
     bool prefetch_from_this;
 
     uint8_t asid[2] = {std::numeric_limits<uint8_t>::max(), std::numeric_limits<uint8_t>::max()};
@@ -143,6 +145,9 @@ class CACHE : public champsim::operable
   bool handle_write(const tag_lookup_type& handle_pkt);
   void finish_packet(const response_type& packet);
   void finish_translation(const response_type& packet);
+
+  bool handle_invincible_miss(const tag_lookup_type& handle_pkt);
+  bool handle_invincible_write(const tag_lookup_type& handle_pkt);
 
   void issue_translation(tag_lookup_type& q_entry);
 

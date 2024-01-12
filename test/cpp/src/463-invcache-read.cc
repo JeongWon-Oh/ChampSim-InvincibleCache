@@ -141,14 +141,14 @@ TEST_CASE("Reading invincible LLC set") {
       std::cout << "3: " << print_result3 << std::endl;
 
    //     AND_WHEN("second access to invincible set") {
-    decltype(mock_ul_test)::request_type reader2;
+    decltype(mock_ul_seed)::request_type reader2;
     reader2.address = 0xdeadbeef;
     reader2.cpu = 0;
     reader2.instr_id = id++;
     //reader2.clusivity = champsim::inclusivity::exclusive;
 
     // Issue it to the uut
-    auto reader2_result = mock_ul_test.issue(reader2);
+    auto reader2_result = mock_ul_seed.issue(reader2);
     //THEN("This issue is received") {
     //  REQUIRE(reader2_result);
     //}
