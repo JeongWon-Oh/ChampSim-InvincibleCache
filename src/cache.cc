@@ -69,6 +69,7 @@ CACHE::mshr_type CACHE::mshr_type::merge(mshr_type predecessor, mshr_type succes
   retval.to_return = merged_return;
   retval.inclusive_evict = merged_inclusive_evict;
   retval.data_promise = predecessor.data_promise;
+  retval.invincible_bypass = predecessor.invincible_bypass || successor.invincible_bypass;
 
   return retval;
 }
@@ -80,17 +81,14 @@ bool CACHE::is_invincible(uint64_t address) {
 
 bool CACHE::is_set_full(uint64_t address) {
   auto [set_begin, set_end] = get_set_span(address);
-  auto way = std::find_if_not(set_begin, set_end, [](auto x) { return x.valid; });
-  if (way == set_end) {
-    return true;
-  }
-  return false;
+  return std::all_of(set_begin, set_end, [](auto x) { return x.valid; });
 }
 
-bool CACHE::is_in_cartel(const mshr_type& msh) { //change input to tag_lookup_type&
-  auto [set_begin, set_end] = get_set_span(msh.address);
+bool CACHE::is_in_cartel(uint64_t address) { //change input to tag_lookup_type&
+  auto [set_begin, set_end] = get_set_span(address);
   //assert(is_invincible(set_begin->address));
-  auto way = std::find_if(set_begin, set_end, [msh](auto x) { return x.cpu == msh.cpu; });
+  uint32_t this_cpu = cpu;
+  auto way = std::find_if(set_begin, set_end, [this_cpu](auto x) { return x.cpu == this_cpu; });
   if(way == set_end) {
     return false;
   }
@@ -112,6 +110,18 @@ void CACHE::free_invincible(uint64_t address) {
   auto [set_begin, set_end] = get_set_span(address);
   for(auto it = set_begin; it != set_end; it++) {
     it->invincible = false;
+  }
+}
+
+void CACHE::handle_llc_invincible(void) {
+  for(uint32_t set = 0; set < NUM_SET; set++) {
+    auto set_begin = std::next(std::begin(block), set * NUM_WAY);
+    set_begin = std::move(set_begin);
+    if(!is_invincible(set_begin->address)) {
+      if(is_set_full(set_begin->address)) {
+        make_invincible(set_begin->address);
+      }
+    }
   }
 }
 
@@ -169,6 +179,13 @@ uint64_t CACHE::module_address(const T& element) const
 
 bool CACHE::handle_fill(const mshr_type& fill_mshr)
 {
+  std::cout << "call handle_fill()" << std::endl;
+  if(fill_mshr.invincible_bypass) {
+    std::cout << "handle_fill(): invincible_bypass" << std::endl;
+    response_type response{fill_mshr.invincible_bypass, fill_mshr.address, fill_mshr.v_address, fill_mshr.data_promise->data, 0, fill_mshr.instr_depend_on_me};
+    std::for_each(std::begin(fill_mshr.to_return), std::end(fill_mshr.to_return), channel_type::returner_for(std::move(response)));
+    return true;
+  }
   cpu = fill_mshr.cpu;
   // find victim
   auto [set_begin, set_end] = get_set_span(fill_mshr.address);
@@ -181,9 +198,9 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
   const auto way_idx = static_cast<std::size_t>(std::distance(set_begin, way)); // cast protected by earlier assertion
 
   if constexpr (champsim::debug_print) {
-    fmt::print("[{}] {} instr_id: {} address: {:#x} v_address: {:#x} set: {} way: {} type: {} prefetch_metadata: {} cycle_enqueued: {} cycle: {}\n", NAME,
+    fmt::print("[{}] {} instr_id: {} address: {:#x} v_address: {:#x} set: {} way: {} type: {} prefetch_metadata: {} cycle_enqueued: {} cycle: {} inv_bypass: {}\n", NAME,
                __func__, fill_mshr.instr_id, fill_mshr.address, fill_mshr.v_address, get_set_index(fill_mshr.address), way_idx,
-               access_type_names.at(champsim::to_underlying(fill_mshr.type)), fill_mshr.data_promise->pf_metadata, fill_mshr.cycle_enqueued, current_cycle);
+               access_type_names.at(champsim::to_underlying(fill_mshr.type)), fill_mshr.data_promise->pf_metadata, fill_mshr.cycle_enqueued, current_cycle, fill_mshr.invincible_bypass);
   }
 
   const bool bypass = (way == set_end || fill_mshr.clusivity == champsim::inclusivity::exclusive);
@@ -202,8 +219,8 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
     writeback_packet.response_requested = false;
 
     if constexpr (champsim::debug_print) {
-      fmt::print("[{}] {} evict address: {:#x} v_address: {:#x} prefetch_metadata: {}\n", NAME,
-          __func__, writeback_packet.address, writeback_packet.v_address, fill_mshr.data_promise->pf_metadata);
+      fmt::print("[{}] {} evict address: {:#x} v_address: {:#x} prefetch_metadata: {} inv_bypass: {}\n", NAME,
+          __func__, writeback_packet.address, writeback_packet.v_address, fill_mshr.data_promise->pf_metadata, fill_mshr.invincible_bypass);
     }
 
     auto success = lower_level->add_wq(writeback_packet);
@@ -242,7 +259,7 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
   // COLLECT STATS
   sim_stats.total_miss_latency += current_cycle - (fill_mshr.cycle_enqueued + 1);
 
-  response_type response{fill_mshr.address, fill_mshr.v_address, fill_mshr.data_promise->data, metadata_thru, fill_mshr.instr_depend_on_me};
+  response_type response{fill_mshr.invincible_bypass, fill_mshr.address, fill_mshr.v_address, fill_mshr.data_promise->data, metadata_thru, fill_mshr.instr_depend_on_me};
   std::for_each(std::begin(fill_mshr.to_return), std::end(fill_mshr.to_return), channel_type::returner_for(std::move(response)));
 
   return true;
@@ -258,9 +275,9 @@ bool CACHE::try_hit(const tag_lookup_type& handle_pkt)
   const auto useful_prefetch = (hit && way->prefetch && !handle_pkt.prefetch_from_this);
 
   if constexpr (champsim::debug_print) {
-    fmt::print("[{}] {} instr_id: {} address: {:#x} v_address: {:#x} data: {:#x} set: {} way: {} ({}) type: {} cycle: {}\n", NAME, __func__, handle_pkt.instr_id,
+    fmt::print("[{}] {} instr_id: {} address: {:#x} v_address: {:#x} data: {:#x} set: {} way: {} ({}) type: {} cycle: {} inv_bypass: {}\n", NAME, __func__, handle_pkt.instr_id,
                handle_pkt.address, handle_pkt.v_address, handle_pkt.data, get_set_index(handle_pkt.address), std::distance(set_begin, way), hit ? "HIT" : "MISS",
-               access_type_names.at(champsim::to_underlying(handle_pkt.type)), current_cycle);
+               access_type_names.at(champsim::to_underlying(handle_pkt.type)), current_cycle, handle_pkt.invincible_bypass);
   }
 
   // update prefetcher on load instructions and prefetches from upper levels
@@ -268,6 +285,13 @@ bool CACHE::try_hit(const tag_lookup_type& handle_pkt)
   if (should_activate_prefetcher(handle_pkt)) {
     metadata_thru = impl_prefetcher_cache_operate(module_address(handle_pkt), handle_pkt.ip, hit ? 1 : 0, useful_prefetch,
                                                   champsim::to_underlying(handle_pkt.type), metadata_thru);
+  }
+
+  if(handle_pkt.invincible_bypass) {
+    std::cout << "try_hit() invincible_bypass" << std::endl;
+    response_type response{handle_pkt.invincible_bypass, handle_pkt.address, handle_pkt.v_address, way->data, metadata_thru, handle_pkt.instr_depend_on_me};
+    std::for_each(std::begin(handle_pkt.to_return), std::end(handle_pkt.to_return), channel_type::returner_for(std::move(response)));
+    return true;
   }
 
   if (hit) {
@@ -278,7 +302,7 @@ bool CACHE::try_hit(const tag_lookup_type& handle_pkt)
     impl_update_replacement_state(handle_pkt.cpu, get_set_index(handle_pkt.address), way_idx, module_address(*way), handle_pkt.ip, 0,
                                   champsim::to_underlying(handle_pkt.type), 1U);
 
-    response_type response{handle_pkt.address, handle_pkt.v_address, way->data, metadata_thru, handle_pkt.instr_depend_on_me};
+    response_type response{handle_pkt.invincible_bypass, handle_pkt.address, handle_pkt.v_address, way->data, metadata_thru, handle_pkt.instr_depend_on_me};
     std::for_each(std::begin(handle_pkt.to_return), std::end(handle_pkt.to_return), channel_type::returner_for(std::move(response)));
 
     way->dirty = (handle_pkt.type == access_type::WRITE);
@@ -323,9 +347,9 @@ auto CACHE::mshr_and_forward_packet(const tag_lookup_type& handle_pkt) -> std::p
 bool CACHE::handle_miss(const tag_lookup_type& handle_pkt)
 {
   if constexpr (champsim::debug_print) {
-    fmt::print("[{}] {} instr_id: {} address: {:#x} v_address: {:#x} type: {} local_prefetch: {} cycle: {}\n", NAME, __func__, handle_pkt.instr_id,
+    fmt::print("[{}] {} instr_id: {} address: {:#x} v_address: {:#x} type: {} local_prefetch: {} cycle: {} inv_bypass: {}\n", NAME, __func__, handle_pkt.instr_id,
                handle_pkt.address, handle_pkt.v_address, access_type_names.at(champsim::to_underlying(handle_pkt.type)), handle_pkt.prefetch_from_this,
-               current_cycle);
+               current_cycle, handle_pkt.invincible_bypass);
   }
 
   mshr_type to_allocate{handle_pkt, current_cycle};
@@ -382,9 +406,9 @@ bool CACHE::handle_miss(const tag_lookup_type& handle_pkt)
 bool CACHE::handle_write(const tag_lookup_type& handle_pkt)
 {
   if constexpr (champsim::debug_print) {
-    fmt::print("[{}] {} instr_id: {} address: {:#x} v_address: {:#x} type: {} local_prefetch: {} cycle: {}\n", NAME, __func__, handle_pkt.instr_id,
+    fmt::print("[{}] {} instr_id: {} address: {:#x} v_address: {:#x} type: {} local_prefetch: {} cycle: {} inv_bypass: {}\n", NAME, __func__, handle_pkt.instr_id,
                handle_pkt.address, handle_pkt.v_address, access_type_names.at(champsim::to_underlying(handle_pkt.type)), handle_pkt.prefetch_from_this,
-               current_cycle);
+               current_cycle, handle_pkt.invincible_bypass);
   }
 
   mshr_type to_allocate{handle_pkt, current_cycle};
@@ -400,16 +424,19 @@ bool CACHE::handle_write(const tag_lookup_type& handle_pkt)
 bool CACHE::handle_invincible_miss(const tag_lookup_type& handle_pkt)
 {
   if constexpr (champsim::debug_print) {
-    fmt::print("[{}] {} instr_id: {} address: {:#x} v_address: {:#x} type: {} local_prefetch: {} cycle: {}\n", NAME, __func__, handle_pkt.instr_id,
+    fmt::print("[{}] {} instr_id: {} address: {:#x} v_address: {:#x} type: {} local_prefetch: {} cycle: {} inv_bypass: {}\n", NAME, __func__, handle_pkt.instr_id,
                handle_pkt.address, handle_pkt.v_address, access_type_names.at(champsim::to_underlying(handle_pkt.type)), handle_pkt.prefetch_from_this,
-               current_cycle);
+               current_cycle, handle_pkt.invincible_bypass);
   }
 
   mshr_type to_allocate{handle_pkt, current_cycle};
+  to_allocate.invincible_bypass = true;
 
   cpu = handle_pkt.cpu;
 
   auto mshr_pkt = mshr_and_forward_packet(handle_pkt);
+  mshr_pkt.first.invincible_bypass = true;
+  mshr_pkt.second.invincible_bypass = true;
 
   // check mshr
   auto mshr_entry = std::find_if(std::begin(MSHR), std::end(MSHR), matches_address(handle_pkt.address));
@@ -448,6 +475,7 @@ bool CACHE::handle_invincible_miss(const tag_lookup_type& handle_pkt)
     // Allocate an MSHR
     if (mshr_pkt.second.response_requested) {
       MSHR.emplace_back(std::move(mshr_pkt.first));
+      assert(mshr_pkt.first.invincible_bypass);
     }
   }
 
@@ -459,13 +487,14 @@ bool CACHE::handle_invincible_miss(const tag_lookup_type& handle_pkt)
 bool CACHE::handle_invincible_write(const tag_lookup_type& handle_pkt)
 {
   if constexpr (champsim::debug_print) {
-    fmt::print("[{}] {} instr_id: {} address: {:#x} v_address: {:#x} type: {} local_prefetch: {} cycle: {}\n", NAME, __func__, handle_pkt.instr_id,
+    fmt::print("[{}] {} instr_id: {} address: {:#x} v_address: {:#x} type: {} local_prefetch: {} cycle: {} inv_bypass: {}\n", NAME, __func__, handle_pkt.instr_id,
                handle_pkt.address, handle_pkt.v_address, access_type_names.at(champsim::to_underlying(handle_pkt.type)), handle_pkt.prefetch_from_this,
-               current_cycle);
+               current_cycle, handle_pkt.invincible_bypass);
   }
 
   mshr_type to_allocate{handle_pkt, current_cycle};
 
+  to_allocate.invincible_bypass = true;
   to_allocate.data_promise.ready_at(current_cycle + (warmup ? 0 : FILL_LATENCY));
   inflight_writes.push_back(to_allocate);
 
@@ -494,8 +523,8 @@ auto CACHE::initiate_tag_check(champsim::channel* ul)
     }
 
     if constexpr (champsim::debug_print) {
-      fmt::print("[TAG] initiate_tag_check instr_id: {} address: {:#x} v_address: {:#x} type: {} event: {}\n", retval.instr_id, retval.address,
-                 retval.v_address, access_type_names.at(champsim::to_underlying(retval.type)), cycle);
+      fmt::print("[TAG] initiate_tag_check instr_id: {} address: {:#x} v_address: {:#x} type: {} event: {} inv_bypass: {}\n", retval.instr_id, retval.address,
+                 retval.v_address, access_type_names.at(champsim::to_underlying(retval.type)), cycle, retval.invincible_bypass);
     }
 
     return retval;
@@ -507,7 +536,8 @@ void CACHE::operate()
   // std::cout << "operate()" << std::endl;
   bool is_llc = (NAME == "LLC");
   if(is_llc) {
-    //random_free_invincible();
+    // this->random_free_invincible();
+    this->handle_llc_invincible();
   }
 
   auto is_ready = [cycle = current_cycle](const auto& entry) {
@@ -579,13 +609,14 @@ void CACHE::operate()
   auto do_tag_check = [this, is_llc](const auto& pkt) {
     //bypass cache access if invincible and not in cartel
     if(is_llc) {
-      if(this->is_invincible(pkt.address) && !this->is_in_cartel(pkt)) {
-        //pkt.invincible_bypass = true;
+      if(this->is_invincible(pkt.address) ){// && !this->is_in_cartel(pkt.address)) {
         //directly access DRAM
         if(pkt.type == access_type::WRITE) {
+          std::cout << "call handle_invincible_wirte()" << std::endl;
           // WRITE to main memory, no response required
           return this->handle_invincible_write(pkt);
         } else {
+          std::cout << "call handle_invincible_miss()" << std::endl;
           // Read request to main memory, forward responce to cpu (bypass cache hierarchy)
           return this->handle_invincible_miss(pkt);
         }
@@ -718,10 +749,11 @@ void CACHE::finish_packet(const response_type& packet)
 
   // MSHR holds the most updated information about this request
   mshr_type::returned_value finished_value{packet.data, packet.pf_metadata};
+  mshr_entry->invincible_bypass = packet.invincible_bypass;
   mshr_entry->data_promise = champsim::waitable{finished_value, current_cycle + (warmup ? 0 : FILL_LATENCY)};
   if constexpr (champsim::debug_print) {
-    fmt::print("[{}_MSHR] finish_packet instr_id: {} address: {:#x} data: {:#x} type: {} current: {}\n", this->NAME, mshr_entry->instr_id, mshr_entry->address,
-               mshr_entry->data_promise->data, access_type_names.at(champsim::to_underlying(mshr_entry->type)), current_cycle);
+    fmt::print("[{}_MSHR] finish_packet instr_id: {} address: {:#x} data: {:#x} type: {} current: {} inv_bypass: {}\n", this->NAME, mshr_entry->instr_id, mshr_entry->address,
+               mshr_entry->data_promise->data, access_type_names.at(champsim::to_underlying(mshr_entry->type)), current_cycle, mshr_entry->invincible_bypass);
   }
 
   // Order this entry after previously-returned entries, but before non-returned
@@ -773,6 +805,7 @@ void CACHE::issue_translation(tag_lookup_type& q_entry)
 
     fwd_pkt.instr_depend_on_me = q_entry.instr_depend_on_me;
     fwd_pkt.is_translated = true;
+    fwd_pkt.invincible_bypass = q_entry.invincible_bypass;
 
     q_entry.translate_issued = lower_translate->add_rq(fwd_pkt);
     if constexpr (champsim::debug_print) {

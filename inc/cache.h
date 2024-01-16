@@ -91,7 +91,7 @@ class CACHE : public champsim::operable
 
     access_type type;
     champsim::inclusivity clusivity{champsim::inclusivity::weak};
-    bool invincible_bypass;
+    bool invincible_bypass = false;
     bool prefetch_from_this;
     bool skip_fill;
     bool is_translated;
@@ -267,9 +267,10 @@ public:
   // void free_invincible(uint64_t address);
   bool is_invincible(uint64_t address);
   bool is_set_full(uint64_t address);
-  bool is_in_cartel(const mshr_type& msh);
+  bool is_in_cartel(uint64_t address);
   void make_invincible(uint64_t address);
   void free_invincible(uint64_t address);
+  void handle_llc_invincible(void);
   void random_free_invincible(void);
 
   [[deprecated("Use CACHE::prefetch_line(pf_addr, fill_this_level, prefetch_metadata) instead.")]] bool

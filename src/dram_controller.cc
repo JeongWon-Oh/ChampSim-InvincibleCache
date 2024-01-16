@@ -50,7 +50,7 @@ void MEMORY_CONTROLLER::operate()
     if (warmup) {
       for (auto& entry : channel.RQ) {
         if (entry.has_value()) {
-          response_type response{entry->address, entry->v_address, entry->data, entry->pf_metadata, entry->instr_depend_on_me};
+          response_type response{entry->invincible_bypass, entry->address, entry->v_address, entry->data, entry->pf_metadata, entry->instr_depend_on_me};
           std::for_each(std::begin(entry.value().to_return), std::end(entry.value().to_return), champsim::channel::returner_for(response));
           entry.reset();
         }
@@ -68,7 +68,7 @@ void MEMORY_CONTROLLER::operate()
     // Finish request
     if (channel.active_request != std::end(channel.bank_request) && channel.active_request->event_cycle <= current_cycle) {
       auto& request = channel.active_request->pkt->value();
-      response_type response{request.address, request.v_address, request.data, request.pf_metadata, request.instr_depend_on_me};
+      response_type response{request.invincible_bypass, request.address, request.v_address, request.data, request.pf_metadata, request.instr_depend_on_me};
       std::for_each(std::begin(request.to_return), std::end(request.to_return), champsim::channel::returner_for(response));
 
       channel.active_request->valid = false;
@@ -241,7 +241,7 @@ void DRAM_CHANNEL::check_read_collision()
         return pkt.has_value() && (pkt->address >> offset) == (addr >> offset);
       };
       if (auto wq_it = std::find_if(std::begin(WQ), std::end(WQ), checker); wq_it != std::end(WQ)) {
-        response_type response{rq_it->value().address, rq_it->value().v_address, rq_it->value().data, rq_it->value().pf_metadata,
+        response_type response{rq_it->value().invincible_bypass, rq_it->value().address, rq_it->value().v_address, rq_it->value().data, rq_it->value().pf_metadata,
                                rq_it->value().instr_depend_on_me};
         response.data = wq_it->value().data;
         std::for_each(std::begin(rq_it->value().to_return), std::end(rq_it->value().to_return), champsim::channel::returner_for(response));
@@ -290,7 +290,7 @@ void MEMORY_CONTROLLER::initiate_requests()
 }
 
 DRAM_CHANNEL::request_type::request_type(const typename champsim::channel::request_type& req)
-    : pf_metadata(req.pf_metadata), address(req.address), v_address(req.address), data(req.data), instr_depend_on_me(req.instr_depend_on_me)
+    : invincible_bypass(req.invincible_bypass), pf_metadata(req.pf_metadata), address(req.address), v_address(req.address), data(req.data), instr_depend_on_me(req.instr_depend_on_me)
 {
   asid[0] = req.asid[0];
   asid[1] = req.asid[1];
@@ -306,6 +306,7 @@ bool MEMORY_CONTROLLER::add_rq(const request_type& packet, champsim::channel* ul
     *rq_it = DRAM_CHANNEL::request_type{packet};
     rq_it->value().forward_checked = false;
     rq_it->value().event_cycle = current_cycle;
+    rq_it->value().invincible_bypass = packet.invincible_bypass;
     if (packet.response_requested) {
       rq_it->value().to_return = {ul};
     }
@@ -326,6 +327,7 @@ bool MEMORY_CONTROLLER::add_wq(const request_type& packet)
     *wq_it = DRAM_CHANNEL::request_type{packet};
     wq_it->value().forward_checked = false;
     wq_it->value().event_cycle = current_cycle;
+    wq_it->value().invincible_bypass = packet.invincible_bypass;
 
     return true;
   }

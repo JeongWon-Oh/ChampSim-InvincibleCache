@@ -85,17 +85,18 @@ class channel
   };
 
   struct response {
+    bool invincible_bypass = false;
     uint64_t address;
     uint64_t v_address;
     uint64_t data;
     uint32_t pf_metadata = 0;
     std::vector<std::reference_wrapper<ooo_model_instr>> instr_depend_on_me{};
 
-    response(uint64_t addr, uint64_t v_addr, uint64_t data_, uint32_t pf_meta, std::vector<std::reference_wrapper<ooo_model_instr>> deps)
-        : address(addr), v_address(v_addr), data(data_), pf_metadata(pf_meta), instr_depend_on_me(deps)
+    response(bool inv_bypass, uint64_t addr, uint64_t v_addr, uint64_t data_, uint32_t pf_meta, std::vector<std::reference_wrapper<ooo_model_instr>> deps)
+        : invincible_bypass(inv_bypass), address(addr), v_address(v_addr), data(data_), pf_metadata(pf_meta), instr_depend_on_me(deps)
     {
     }
-    explicit response(request req) : response(req.address, req.v_address, req.data, req.pf_metadata, req.instr_depend_on_me) {}
+    explicit response(request req) : response(req.invincible_bypass, req.address, req.v_address, req.data, req.pf_metadata, req.instr_depend_on_me) {}
   };
 
   struct invalidation_request {

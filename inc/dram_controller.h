@@ -46,6 +46,7 @@ struct DRAM_CHANNEL {
   struct request_type {
     bool scheduled = false;
     bool forward_checked = false;
+    bool invincible_bypass = false;
 
     uint8_t asid[2] = {std::numeric_limits<uint8_t>::max(), std::numeric_limits<uint8_t>::max()};
 

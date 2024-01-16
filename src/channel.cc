@@ -65,7 +65,7 @@ bool do_collision_for_return(Iter begin, Iter end, champsim::channel::request_ty
 {
   return do_collision_for(begin, end, packet, shamt, [&](champsim::channel::request_type& source, champsim::channel::request_type& destination) {
     if (source.response_requested) {
-      returned.emplace_back(source.address, source.v_address, destination.data, destination.pf_metadata, source.instr_depend_on_me);
+      returned.emplace_back(source.invincible_bypass, source.address, source.v_address, destination.data, destination.pf_metadata, source.instr_depend_on_me);
     }
   });
 }
@@ -130,8 +130,8 @@ bool champsim::channel::do_add_queue(R& queue, std::size_t queue_size, const typ
   }
 
   if constexpr (champsim::debug_print) {
-    fmt::print("[channel] {} instr_id: {} address: {:#x} v_address: {:#x} type: {}\n", __func__, packet.instr_id, packet.address, packet.v_address,
-               access_type_names.at(champsim::to_underlying(packet.type)));
+    fmt::print("[channel] {} instr_id: {} address: {:#x} v_address: {:#x} type: {} inv_bypass: {}\n", __func__, packet.instr_id, packet.address, packet.v_address,
+               access_type_names.at(champsim::to_underlying(packet.type)), packet.invincible_bypass);
   }
 
   // Insert the packet ahead of the translation misses
