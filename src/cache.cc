@@ -97,7 +97,7 @@ bool CACHE::is_in_cartel(uint64_t address) { //change input to tag_lookup_type&
 
 void CACHE::make_invincible(uint64_t address) {
   //assert(!is_invincible(address));
-  std::cout << "make_invincible()" << std::endl;
+  //std::cout << "make_invincible()" << std::endl;
   auto [set_begin, set_end] = get_set_span(address);
   for(auto it = set_begin; it != set_end; it++) {
     it->invincible = true;
@@ -179,7 +179,7 @@ uint64_t CACHE::module_address(const T& element) const
 
 bool CACHE::handle_fill(const mshr_type& fill_mshr)
 {
-  std::cout << "call handle_fill()" << std::endl;
+  // std::cout << "call handle_fill()" << std::endl;
   if(fill_mshr.invincible_bypass) {
     std::cout << "handle_fill(): invincible_bypass" << std::endl;
     response_type response{fill_mshr.invincible_bypass, fill_mshr.address, fill_mshr.v_address, fill_mshr.data_promise->data, 0, fill_mshr.instr_depend_on_me};
@@ -313,7 +313,8 @@ bool CACHE::try_hit(const tag_lookup_type& handle_pkt)
       way->prefetch = false;
     }
 
-    invalidate_entry(*way);
+    if (handle_pkt.clusivity == champsim::inclusivity::exclusive)
+      invalidate_entry(*way);
   }
 
   return hit;
@@ -405,6 +406,7 @@ bool CACHE::handle_miss(const tag_lookup_type& handle_pkt)
 
 bool CACHE::handle_write(const tag_lookup_type& handle_pkt)
 {
+  std::cout << "call handle_write()" << std::endl;
   if constexpr (champsim::debug_print) {
     fmt::print("[{}] {} instr_id: {} address: {:#x} v_address: {:#x} type: {} local_prefetch: {} cycle: {} inv_bypass: {}\n", NAME, __func__, handle_pkt.instr_id,
                handle_pkt.address, handle_pkt.v_address, access_type_names.at(champsim::to_underlying(handle_pkt.type)), handle_pkt.prefetch_from_this,
@@ -609,7 +611,7 @@ void CACHE::operate()
   auto do_tag_check = [this, is_llc](const auto& pkt) {
     //bypass cache access if invincible and not in cartel
     if(is_llc) {
-      if(this->is_invincible(pkt.address) ){// && !this->is_in_cartel(pkt.address)) {
+      if(this->is_invincible(pkt.address) && !this->is_in_cartel(pkt.address)) {
         //directly access DRAM
         if(pkt.type == access_type::WRITE) {
           std::cout << "call handle_invincible_wirte()" << std::endl;

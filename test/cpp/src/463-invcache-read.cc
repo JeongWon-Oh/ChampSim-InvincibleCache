@@ -11,7 +11,7 @@ TEST_CASE("Reading invincible LLC set") {
     constexpr uint64_t miss_latency = 3;
     constexpr uint64_t fill_latency = 2;
     do_nothing_MRC mock_ll{miss_latency};
-    to_rq_MRP mock_ul_seed;
+    to_wq_MRP mock_ul_seed;
     to_wq_MRP mock_ul_test;
 
     champsim::channel seed_to_llc{};
@@ -38,7 +38,7 @@ TEST_CASE("Reading invincible LLC set") {
       .sets(1)
       .ways(1)
     };
-    test_upper.cpu = 1;
+    test_upper.cpu = 0;
 
     CACHE llc{champsim::cache_builder{champsim::defaults::default_llc}
       .name("LLC")
@@ -56,6 +56,16 @@ TEST_CASE("Reading invincible LLC set") {
       elem->warmup = false;
       elem->begin_phase();
     }
+    std::cout << elements.size() << std::endl;
+    for (int i = 0; i < 10; ++i) {
+      //std::cout << "flag 1" << std::endl;
+      elements.at(0)->_operate();
+      elements.at(1)->_operate();
+      elements.at(2)->_operate();
+      elements.at(3)->_operate();
+      elements.at(4)->_operate();
+      elements.at(5)->_operate();
+    }
 
     // Create a test packet
     static uint64_t id = 1;
@@ -63,13 +73,11 @@ TEST_CASE("Reading invincible LLC set") {
     seed.address = 0xa0a0a0a0;
     seed.cpu = 0;
     seed.instr_id = id++;
+    seed.type = access_type::WRITE;
     seed.clusivity = champsim::inclusivity::inclusive;
 
     // Issue it to the uut
     auto seed_result = mock_ul_seed.issue(seed);
-    THEN("This issue is received") {
-      REQUIRE(seed_result);
-    }
 
     // Run the uut for long enough to fulfill the request
     for (int i = 0; i < 100; ++i) {
@@ -82,6 +90,10 @@ TEST_CASE("Reading invincible LLC set") {
       elements.at(5)->_operate();
     }
 
+    THEN("This issue is received") {
+      REQUIRE(seed_result);
+    }
+
     auto print_result1 = llc.is_invincible(0xdeadbeef) ? "true" : "false";
     std::cout << "1: " << print_result1 << std::endl;
 
@@ -91,12 +103,10 @@ TEST_CASE("Reading invincible LLC set") {
     seed2.address = 0xbabebabe;
     seed2.cpu = 0;
     seed2.instr_id = id++;
+    seed2.type = access_type::WRITE;
     seed2.clusivity = champsim::inclusivity::inclusive;
 
     auto seed2_result = mock_ul_seed.issue(seed2);
-    THEN("This issue is received") {
-      REQUIRE(seed2_result);
-    }
 
     for (int i = 0; i < 100; ++i) {
       //std::cout << "flag 2" << std::endl;
@@ -108,18 +118,23 @@ TEST_CASE("Reading invincible LLC set") {
       elements.at(5)->_operate();
     }
 
+    THEN("This issue is received") {
+      REQUIRE(seed2_result);
+    }
+
     auto print_result2 = llc.is_invincible(0xdeadbeef) ? "true" : "false";
     std::cout << "2: " << print_result2 << std::endl;
 
     //AND_WHEN("Try to read from invincible set") {
-      decltype(mock_ul_seed)::request_type reader;
-      reader.address = 0xcafebabe;
+      decltype(mock_ul_test)::request_type reader;
+      reader.address = 0xa0a0a0a0;
       reader.cpu = 0;
       reader.instr_id = id++;
+      reader.type = access_type::WRITE;
       reader.clusivity = champsim::inclusivity::inclusive;
 
       // Issue it to the uut
-      auto reader_result = mock_ul_seed.issue(reader);
+      auto reader_result = mock_ul_test.issue(reader);
       //THEN("This issue is received") {
       //  REQUIRE(reader_result);
       //}
@@ -142,14 +157,15 @@ TEST_CASE("Reading invincible LLC set") {
       std::cout << "3: " << reader_result << std::endl;
 
    //     AND_WHEN("second access to invincible set") {
-    decltype(mock_ul_seed)::request_type reader2;
+    decltype(mock_ul_test)::request_type reader2;
     reader2.address = 0xdeadbeef;
     reader2.cpu = 0;
     reader2.instr_id = id++;
+    reader2.type = access_type::WRITE;
     reader2.clusivity = champsim::inclusivity::inclusive;
 
     // Issue it to the uut
-    auto reader2_result = mock_ul_seed.issue(reader2);
+    auto reader2_result = mock_ul_test.issue(reader2);
     //THEN("This issue is received") {
     //  REQUIRE(reader2_result);
     //}
