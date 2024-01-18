@@ -85,6 +85,7 @@ bool CACHE::is_set_full(uint64_t address) {
 }
 
 bool CACHE::is_in_cartel(uint64_t address) { //change input to tag_lookup_type&
+  std::cout << "call is_in_cartel()" << std::endl;
   auto [set_begin, set_end] = get_set_span(address);
   //assert(is_invincible(set_begin->address));
   uint32_t this_cpu = cpu;
@@ -97,7 +98,7 @@ bool CACHE::is_in_cartel(uint64_t address) { //change input to tag_lookup_type&
 
 void CACHE::make_invincible(uint64_t address) {
   //assert(!is_invincible(address));
-  //std::cout << "make_invincible()" << std::endl;
+  std::cout << "make_invincible()" << std::endl;
   auto [set_begin, set_end] = get_set_span(address);
   for(auto it = set_begin; it != set_end; it++) {
     it->invincible = true;
@@ -406,7 +407,7 @@ bool CACHE::handle_miss(const tag_lookup_type& handle_pkt)
 
 bool CACHE::handle_write(const tag_lookup_type& handle_pkt)
 {
-  std::cout << "call handle_write()" << std::endl;
+  //std::cout << "call handle_write()" << std::endl;
   if constexpr (champsim::debug_print) {
     fmt::print("[{}] {} instr_id: {} address: {:#x} v_address: {:#x} type: {} local_prefetch: {} cycle: {} inv_bypass: {}\n", NAME, __func__, handle_pkt.instr_id,
                handle_pkt.address, handle_pkt.v_address, access_type_names.at(champsim::to_underlying(handle_pkt.type)), handle_pkt.prefetch_from_this,
@@ -538,7 +539,9 @@ void CACHE::operate()
   // std::cout << "operate()" << std::endl;
   bool is_llc = (NAME == "LLC");
   if(is_llc) {
-    // this->random_free_invincible();
+    if(current_cycle%2 == 0)
+      this->random_free_invincible();
+    
     this->handle_llc_invincible();
   }
 
@@ -638,7 +641,6 @@ void CACHE::operate()
   auto finish_tag_check_end = std::find_if_not(tag_check_ready_begin, tag_check_ready_end, do_tag_check);
   [[maybe_unused]] auto tag_bw_consumed = std::distance(tag_check_ready_begin, finish_tag_check_end);
   inflight_tag_check.erase(tag_check_ready_begin, finish_tag_check_end);
-
   impl_prefetcher_cycle_operate();
 
   if (champsim::debug_print) {
