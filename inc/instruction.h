@@ -61,6 +61,7 @@ struct ooo_model_instr {
   bool dib_checked = false;
   bool fetch_issued = false;
   bool fetch_completed = false;
+  uint8_t fetched = 0;
   bool decoded = false;
   bool scheduled = false;
   bool executed = false;

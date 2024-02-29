@@ -75,6 +75,9 @@ void champsim::plain_printer::print(CACHE::stats_type stats)
       total_misses += stats.misses.at(champsim::to_underlying(type)).at(cpu);
     }
 
+    if(stats.name == "LLC")
+      fmt::print(stream, "{} INVINCIBLE ACTIVATED: {} BLOCKED READ: {} BLOCKED WRITE: {} FREED: {}\n", stats.name, stats.invincible_activated, stats.invincible_blocked_read, stats.invincible_blocked_write, stats.invincible_freed);
+
     fmt::format_string<std::string_view, std::string_view, int, int, int> hitmiss_fmtstr{"{} {:<12s} ACCESS: {:10d} HIT: {:10d} MISS: {:10d}\n"};
     fmt::print(stream, hitmiss_fmtstr, stats.name, "TOTAL", total_hits + total_misses, total_hits, total_misses);
     for (const auto type : {access_type::LOAD, access_type::RFO, access_type::PREFETCH, access_type::WRITE, access_type::TRANSLATION}) {

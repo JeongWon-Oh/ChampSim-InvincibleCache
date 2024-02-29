@@ -85,7 +85,7 @@ bool CACHE::is_set_full(uint64_t address) {
 }
 
 bool CACHE::is_in_cartel(uint64_t address) { //change input to tag_lookup_type&
-  std::cout << "call is_in_cartel()" << std::endl;
+  //std::cout << "call is_in_cartel()" << std::endl;
   auto [set_begin, set_end] = get_set_span(address);
   //assert(is_invincible(set_begin->address));
   uint32_t this_cpu = cpu;
@@ -98,16 +98,17 @@ bool CACHE::is_in_cartel(uint64_t address) { //change input to tag_lookup_type&
 
 void CACHE::make_invincible(uint64_t address) {
   //assert(!is_invincible(address));
-  std::cout << "make_invincible()" << std::endl;
+  //std::cout << "make_invincible()" << std::endl;
   auto [set_begin, set_end] = get_set_span(address);
   for(auto it = set_begin; it != set_end; it++) {
     it->invincible = true;
   }
+  ++sim_stats.invincible_activated;
 }
 
 void CACHE::free_invincible(uint64_t address) {
   //assert(is_invincible(address));
-  std::cout << "free_invincible()" << std::endl;
+  //std::cout << "free_invincible()" << std::endl;
   auto [set_begin, set_end] = get_set_span(address);
   for(auto it = set_begin; it != set_end; it++) {
     it->invincible = false;
@@ -148,6 +149,7 @@ void CACHE::random_free_invincible(void) {
     assert(set_begin <= it && it <= set_end);
     invalidate_entry(*it);
     // std::cout << "random_free_invincible()" << std::endl;
+    ++sim_stats.invincible_freed;
   }
 }
 
@@ -182,7 +184,7 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
 {
   // std::cout << "call handle_fill()" << std::endl;
   if(fill_mshr.invincible_bypass) {
-    std::cout << "handle_fill(): invincible_bypass" << std::endl;
+    //std::cout << "handle_fill(): invincible_bypass" << std::endl;
     response_type response{fill_mshr.invincible_bypass, fill_mshr.address, fill_mshr.v_address, fill_mshr.data_promise->data, 0, fill_mshr.instr_depend_on_me};
     std::for_each(std::begin(fill_mshr.to_return), std::end(fill_mshr.to_return), channel_type::returner_for(std::move(response)));
     return true;
@@ -289,7 +291,7 @@ bool CACHE::try_hit(const tag_lookup_type& handle_pkt)
   }
 
   if(handle_pkt.invincible_bypass) {
-    std::cout << "try_hit() invincible_bypass" << std::endl;
+    //std::cout << "try_hit() invincible_bypass" << std::endl;
     response_type response{handle_pkt.invincible_bypass, handle_pkt.address, handle_pkt.v_address, way->data, metadata_thru, handle_pkt.instr_depend_on_me};
     std::for_each(std::begin(handle_pkt.to_return), std::end(handle_pkt.to_return), channel_type::returner_for(std::move(response)));
     return true;
@@ -483,6 +485,7 @@ bool CACHE::handle_invincible_miss(const tag_lookup_type& handle_pkt)
   }
 
   ++sim_stats.misses.at(champsim::to_underlying(handle_pkt.type)).at(handle_pkt.cpu);
+  ++sim_stats.invincible_blocked_read;
 
   return true;
 }
@@ -502,6 +505,7 @@ bool CACHE::handle_invincible_write(const tag_lookup_type& handle_pkt)
   inflight_writes.push_back(to_allocate);
 
   ++sim_stats.misses.at(champsim::to_underlying(handle_pkt.type)).at(handle_pkt.cpu);
+  ++sim_stats.invincible_blocked_write;
 
   return true;
 }
@@ -539,7 +543,7 @@ void CACHE::operate()
   // std::cout << "operate()" << std::endl;
   bool is_llc = (NAME == "LLC");
   if(is_llc) {
-    if(current_cycle%2 == 0)
+    if(current_cycle%10 == 0)
       this->random_free_invincible();
     
     this->handle_llc_invincible();
@@ -617,11 +621,11 @@ void CACHE::operate()
       if(this->is_invincible(pkt.address) && !this->is_in_cartel(pkt.address)) {
         //directly access DRAM
         if(pkt.type == access_type::WRITE) {
-          std::cout << "call handle_invincible_wirte()" << std::endl;
+          //std::cout << "call handle_invincible_wirte()" << std::endl;
           // WRITE to main memory, no response required
           return this->handle_invincible_write(pkt);
         } else {
-          std::cout << "call handle_invincible_miss()" << std::endl;
+          //std::cout << "call handle_invincible_miss()" << std::endl;
           // Read request to main memory, forward responce to cpu (bypass cache hierarchy)
           return this->handle_invincible_miss(pkt);
         }
@@ -940,6 +944,11 @@ void CACHE::end_phase(unsigned finished_cpu)
     roi_stats.hits.at(champsim::to_underlying(type)).at(finished_cpu) = sim_stats.hits.at(champsim::to_underlying(type)).at(finished_cpu);
     roi_stats.misses.at(champsim::to_underlying(type)).at(finished_cpu) = sim_stats.misses.at(champsim::to_underlying(type)).at(finished_cpu);
   }
+
+  roi_stats.invincible_activated = sim_stats.invincible_activated;
+  roi_stats.invincible_blocked_read = sim_stats.invincible_blocked_read;
+  roi_stats.invincible_blocked_write = sim_stats.invincible_blocked_write;
+  roi_stats.invincible_freed = sim_stats.invincible_freed;
 
   roi_stats.pf_requested = sim_stats.pf_requested;
   roi_stats.pf_issued = sim_stats.pf_issued;

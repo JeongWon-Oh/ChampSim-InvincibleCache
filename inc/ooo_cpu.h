@@ -44,6 +44,8 @@
 #include "util/bits.h" // for lg2
 #include "util/lru_table.h"
 
+enum STATUS { INFLIGHT = 1, COMPLETED = 2 };
+
 class CACHE;
 class CacheBus
 {

@@ -63,6 +63,10 @@ void to_json(nlohmann::json& j, const CACHE::stats_type& stats)
   statsmap.emplace("useful prefetch", stats.pf_useful);
   statsmap.emplace("useless prefetch", stats.pf_useless);
   statsmap.emplace("miss latency", stats.avg_miss_latency);
+  statsmap.emplace("invincible activated", stats.invincible_activated);
+  statsmap.emplace("invincible blocked read", stats.invincible_blocked_read);
+  statsmap.emplace("invincible blocked write", stats.invincible_blocked_write);
+  statsmap.emplace("invincible freed", stats.invincible_freed);
   for (const auto type : {access_type::LOAD, access_type::RFO, access_type::PREFETCH, access_type::WRITE, access_type::TRANSLATION}) {
     statsmap.emplace(access_type_names.at(champsim::to_underlying(type)),
                      nlohmann::json{{"hit", stats.hits.at(champsim::to_underlying(type))}, {"miss", stats.misses.at(champsim::to_underlying(type))}});

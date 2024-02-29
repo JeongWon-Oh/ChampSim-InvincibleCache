@@ -213,7 +213,7 @@ void O3_CPU::do_check_dib(ooo_model_instr& instr)
   // Check DIB to see if we recently fetched this line
   if (auto dib_result = DIB.check_hit(instr.ip); dib_result) {
     // The cache line is in the L0, so we can mark this as complete
-    instr.fetch_completed = true;
+    instr.fetched = COMPLETED;
 
     // Also mark it as decoded
     instr.decoded = true;
@@ -229,7 +229,7 @@ void O3_CPU::fetch_instruction()
 {
   // Fetch a single cache line
   auto fetch_ready = [](const ooo_model_instr& x) {
-    return x.dib_checked && !x.fetch_issued;
+    return x.dib_checked && !x.fetched;
   };
 
   // Find the chunk of instructions in the block
@@ -247,7 +247,7 @@ void O3_CPU::fetch_instruction()
     // Issue to L1I
     auto success = do_fetch_instruction(l1i_req_begin, l1i_req_end);
     if (success) {
-      std::for_each(l1i_req_begin, l1i_req_end, [](auto& x) { x.fetch_issued = true; });
+      std::for_each(l1i_req_begin, l1i_req_end, [](auto& x) { x.fetched = INFLIGHT; });
     }
 
     l1i_req_begin = std::find_if(l1i_req_end, std::end(IFETCH_BUFFER), fetch_ready);
@@ -274,7 +274,7 @@ void O3_CPU::promote_to_decode()
 {
   auto available_fetch_bandwidth = std::min<long>(FETCH_WIDTH, static_cast<long>(DECODE_BUFFER_SIZE - std::size(DECODE_BUFFER)));
   auto [window_begin, window_end] = champsim::get_span_p(std::begin(IFETCH_BUFFER), std::end(IFETCH_BUFFER), available_fetch_bandwidth,
-                                                         [cycle = current_cycle](const auto& x) { return x.fetch_completed && x.event_cycle <= cycle; });
+                                                         [cycle = current_cycle](const auto& x) { return x.fetched == COMPLETED && x.event_cycle <= cycle; });
   std::for_each(window_begin, window_end,
                 [cycle = current_cycle, lat = DECODE_LATENCY, warmup = warmup](auto& x) { return x.event_cycle = cycle + ((warmup || x.decoded) ? 0 : lat); });
   std::move(window_begin, window_end, std::back_inserter(DECODE_BUFFER));
@@ -583,8 +583,8 @@ void O3_CPU::handle_memory_return()
 
     while (l1i_bw > 0 && !l1i_entry.instr_depend_on_me.empty()) {
       ooo_model_instr& fetched = l1i_entry.instr_depend_on_me.front();
-      if ((fetched.ip >> LOG2_BLOCK_SIZE) == (l1i_entry.v_address >> LOG2_BLOCK_SIZE) && fetched.fetch_issued) {
-        fetched.fetch_completed = true;
+      if ((fetched.ip >> LOG2_BLOCK_SIZE) == (l1i_entry.v_address >> LOG2_BLOCK_SIZE) && fetched.fetched != 0) {
+        fetched.fetched = COMPLETED;
         --l1i_bw;
 
         if constexpr (champsim::debug_print) {
