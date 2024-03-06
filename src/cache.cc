@@ -34,13 +34,14 @@
 
 CACHE::tag_lookup_type::tag_lookup_type(request_type req, bool local_pref, bool skip)
     : address(req.address), v_address(req.v_address), data(req.data), ip(req.ip), instr_id(req.instr_id), pf_metadata(req.pf_metadata), cpu(req.cpu),
-      type(req.type), prefetch_from_this(local_pref), skip_fill(skip), is_translated(req.is_translated), instr_depend_on_me(req.instr_depend_on_me)
+      type(req.type), clusivity(req.clusivity), prefetch_from_this(local_pref), skip_fill(skip), is_translated(req.is_translated), instr_depend_on_me(req.instr_depend_on_me)
 {
 }
 
 CACHE::mshr_type::mshr_type(tag_lookup_type req, uint64_t cycle)
-    : address(req.address), v_address(req.v_address), data(req.data), ip(req.ip), instr_id(req.instr_id), pf_metadata(req.pf_metadata), cpu(req.cpu),
-      type(req.type), prefetch_from_this(req.prefetch_from_this), cycle_enqueued(cycle), instr_depend_on_me(req.instr_depend_on_me), to_return(req.to_return)
+    : address(req.address), v_address(req.v_address), data(req.data), ip(req.ip), instr_id(req.instr_id), pf_metadata(req.pf_metadata), cpu(req.cpu), type(req.type),
+      clusivity(req.clusivity), prefetch_from_this(req.prefetch_from_this), cycle_enqueued(cycle), instr_depend_on_me(req.instr_depend_on_me), to_return(req.to_return),
+      inclusive_evict(req.inclusive_evict)
 {
 }
 
@@ -48,16 +49,20 @@ CACHE::mshr_type CACHE::mshr_type::merge(mshr_type predecessor, mshr_type succes
 {
   std::vector<std::reference_wrapper<ooo_model_instr>> merged_instr{};
   std::vector<std::deque<response_type>*> merged_return{};
+  std::vector<channel_type*> merged_inclusive_evict{};
 
   std::set_union(std::begin(predecessor.instr_depend_on_me), std::end(predecessor.instr_depend_on_me), std::begin(successor.instr_depend_on_me),
                  std::end(successor.instr_depend_on_me), std::back_inserter(merged_instr), ooo_model_instr::program_order);
   std::set_union(std::begin(predecessor.to_return), std::end(predecessor.to_return), std::begin(successor.to_return), std::end(successor.to_return),
                  std::back_inserter(merged_return));
+  std::set_union(std::begin(predecessor.inclusive_evict), std::end(predecessor.inclusive_evict), std::begin(successor.inclusive_evict), std::end(successor.inclusive_evict),
+                 std::back_inserter(merged_inclusive_evict));
 
   mshr_type retval{(successor.type == access_type::PREFETCH) ? predecessor : successor};
   retval.instr_depend_on_me = merged_instr;
   retval.to_return = merged_return;
   retval.data = predecessor.data;
+  retval.inclusive_evict = merged_inclusive_evict;
 
   if (predecessor.event_cycle < std::numeric_limits<uint64_t>::max()) {
     retval.event_cycle = predecessor.event_cycle;
@@ -103,7 +108,7 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
   bool success = true;
   auto metadata_thru = fill_mshr.pf_metadata;
   auto pkt_address = (virtual_prefetch ? fill_mshr.v_address : fill_mshr.address) & ~champsim::bitmask(match_offset_bits ? 0 : OFFSET_BITS);
-  if (way != set_end) {
+  if (way != set_end && fill_mshr.clusivity != champsim::inclusivity::exclusive) {
     if (way->valid && way->dirty) {
       request_type writeback_packet;
 
@@ -207,6 +212,9 @@ bool CACHE::try_hit(const tag_lookup_type& handle_pkt)
       ++sim_stats.pf_useful;
       way->prefetch = false;
     }
+
+    if(handle_pkt.clusivity == champsim::inclusivity::exclusive)
+      invalidate_entry(handle_pkt.address);
   }
 
   return hit;
@@ -317,6 +325,9 @@ auto CACHE::initiate_tag_check(champsim::channel* ul)
     if constexpr (UpdateRequest) {
       if (entry.response_requested)
         retval.to_return = {&ul->returned};
+
+      if (entry.clusivity == champsim::inclusivity::inclusive)
+        retval.inclusive_evict = {ul};
     }
 
     if constexpr (champsim::debug_print) {

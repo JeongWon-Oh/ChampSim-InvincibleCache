@@ -74,6 +74,7 @@ class CACHE : public champsim::operable
     uint32_t cpu;
 
     access_type type;
+    champsim::inclusivity clusivity{champsim::inclusivity::weak};
     bool prefetch_from_this;
     bool skip_fill;
     bool is_translated;
@@ -85,6 +86,7 @@ class CACHE : public champsim::operable
 
     std::vector<std::reference_wrapper<ooo_model_instr>> instr_depend_on_me{};
     std::vector<std::deque<response_type>*> to_return{};
+    std::vector<channel_type*> inclusive_evict{};
 
     explicit tag_lookup_type(request_type req) : tag_lookup_type(req, false, false) {}
     tag_lookup_type(request_type req, bool local_pref, bool skip);
@@ -101,6 +103,7 @@ class CACHE : public champsim::operable
     uint32_t cpu;
 
     access_type type;
+    champsim::inclusivity clusivity{champsim::inclusivity::weak};
     bool prefetch_from_this;
 
     uint8_t asid[2] = {std::numeric_limits<uint8_t>::max(), std::numeric_limits<uint8_t>::max()};
@@ -110,6 +113,7 @@ class CACHE : public champsim::operable
 
     std::vector<std::reference_wrapper<ooo_model_instr>> instr_depend_on_me{};
     std::vector<std::deque<response_type>*> to_return{};
+    std::vector<channel_type*> inclusive_evict{};
 
     mshr_type(tag_lookup_type req, uint64_t cycle);
     static mshr_type merge(mshr_type predecessor, mshr_type successor);
