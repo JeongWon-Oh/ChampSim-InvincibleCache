@@ -16,6 +16,8 @@ SCENARIO("An exclusive load causes an eviction") {
       .name("460-uut")
         .upper_levels({&mock_ul_seed.queues, &mock_ul_test.queues})
         .lower_level(&mock_ll.queues)
+        .sets(1)
+        .ways(4)
         .hit_latency(hit_latency)
         .fill_latency(fill_latency)
         .prefetch_activate(access_type::LOAD, access_type::RFO, access_type::PREFETCH, access_type::WRITE, access_type::TRANSLATION)

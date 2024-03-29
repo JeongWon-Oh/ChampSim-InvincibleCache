@@ -177,7 +177,7 @@ bool CACHE::try_hit(const tag_lookup_type& handle_pkt)
   auto [set_begin, set_end] = get_set_span(handle_pkt.address);
   auto way = std::find_if(set_begin, set_end,
                           [match = handle_pkt.address >> OFFSET_BITS, shamt = OFFSET_BITS](const auto& entry) { return (entry.address >> shamt) == match; });
-  const auto hit = (way != set_end);
+  const auto hit = (way != set_end) && way->valid;
   const auto useful_prefetch = (hit && way->prefetch && !handle_pkt.prefetch_from_this);
 
   if constexpr (champsim::debug_print) {
