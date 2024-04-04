@@ -40,7 +40,7 @@ PageTableWalker::PageTableWalker(Builder b)
 
 PageTableWalker::mshr_type::mshr_type(request_type req, std::size_t level)
     : address(req.address), v_address(req.v_address), instr_depend_on_me(req.instr_depend_on_me), pf_metadata(req.pf_metadata), cpu(req.cpu),
-      translation_level(level)
+      translation_level(level), invincible_bypass(req.invincible_bypass)
 {
   asid[0] = req.asid[0];
   asid[1] = req.asid[1];
@@ -124,7 +124,7 @@ long PageTableWalker::operate()
                                                              [cycle = current_cycle](const auto& pkt) { return pkt.event_cycle <= cycle; });
   std::for_each(complete_begin, complete_end, [](auto& mshr_entry) {
     for (auto ret : mshr_entry.to_return)
-      ret->emplace_back(mshr_entry.v_address, mshr_entry.v_address, mshr_entry.data, mshr_entry.pf_metadata, mshr_entry.instr_depend_on_me);
+      ret->emplace_back(mshr_entry.invincible_bypass, mshr_entry.v_address, mshr_entry.v_address, mshr_entry.data, mshr_entry.pf_metadata, mshr_entry.instr_depend_on_me);
   });
   fill_bw -= std::distance(complete_begin, complete_end);
   progress += std::distance(complete_begin, complete_end);

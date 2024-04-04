@@ -30,12 +30,18 @@
 #include <string>
 #include <vector>
 
+#include <iostream>
+#include <map>
+#include <random>
+
 #include "champsim.h"
 #include "champsim_constants.h"
 #include "channel.h"
 #include "module_impl.h"
 #include "operable.h"
 #include <type_traits>
+
+#define RANDOM_EVICTION_FREQ 10
 
 struct cache_stats {
   std::string name;
@@ -75,6 +81,7 @@ class CACHE : public champsim::operable
 
     access_type type;
     champsim::inclusivity clusivity{champsim::inclusivity::weak};
+    bool invincible_bypass = false;
     bool prefetch_from_this;
     bool skip_fill;
     bool is_translated;
@@ -104,6 +111,7 @@ class CACHE : public champsim::operable
 
     access_type type;
     champsim::inclusivity clusivity{champsim::inclusivity::weak};
+    bool invincible_bypass = false;
     bool prefetch_from_this;
 
     uint8_t asid[2] = {std::numeric_limits<uint8_t>::max(), std::numeric_limits<uint8_t>::max()};
@@ -126,6 +134,9 @@ class CACHE : public champsim::operable
   void finish_packet(const response_type& packet);
   void finish_translation(const response_type& packet);
 
+  bool handle_invincible_miss(const tag_lookup_type& handle_pkt);
+  bool handle_invincible_write(const tag_lookup_type& handle_pkt);
+
   void issue_translation();
 
   struct BLOCK {
@@ -133,11 +144,15 @@ class CACHE : public champsim::operable
     bool prefetch = false;
     bool dirty = false;
 
+    bool invincible = false;
+    uint32_t cpu;
+
     uint64_t address = 0;
     uint64_t v_address = 0;
     uint64_t data = 0;
 
     uint32_t pf_metadata = 0;
+    std::vector<channel_type*> inclusive_evict{};
 
     BLOCK() = default;
     explicit BLOCK(mshr_type mshr);
@@ -219,6 +234,14 @@ public:
 
   [[deprecated("Use CACHE::prefetch_line(pf_addr, fill_this_level, prefetch_metadata) instead.")]] int
   prefetch_line(uint64_t ip, uint64_t base_addr, uint64_t pf_addr, bool fill_this_level, uint32_t prefetch_metadata);
+
+  bool is_invincible(uint64_t address);
+  bool is_set_full(uint64_t address);
+  bool is_in_cartel(uint64_t address);
+  void make_invincible(uint64_t address);
+  void free_invincible(uint64_t address);
+  void handle_llc_invincible(void);
+  void random_free_invincible(void);
 
   void print_deadlock() override;
 
