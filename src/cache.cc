@@ -85,7 +85,7 @@ CACHE::mshr_type CACHE::mshr_type::merge(mshr_type predecessor, mshr_type succes
 }
 
 CACHE::BLOCK::BLOCK(mshr_type mshr)
-    : valid(true), prefetch(mshr.prefetch_from_this), dirty(mshr.type == access_type::WRITE), invincible(false),
+    : valid(true), prefetch(mshr.prefetch_from_this), dirty(mshr.type == access_type::WRITE), invincible(false), cpu(mshr.cpu),
       address(mshr.address), v_address(mshr.v_address), data(mshr.data), inclusive_evict(mshr.inclusive_evict)
 {
 }
@@ -250,8 +250,6 @@ bool CACHE::handle_miss(const tag_lookup_type& handle_pkt)
 
   mshr_type to_allocate{handle_pkt, current_cycle};
 
-  cpu = handle_pkt.cpu;
-
   // check mshr
   auto mshr_entry = std::find_if(std::begin(MSHR), std::end(MSHR), [match = handle_pkt.address >> OFFSET_BITS, shamt = OFFSET_BITS](const auto& entry) {
     return (entry.address >> shamt) == match;
@@ -383,12 +381,14 @@ bool CACHE::is_in_cartel(uint64_t address) {
 }
 
 void CACHE::make_invincible(uint64_t address) {
+  ++sim_stats.invincible_activated[cpu];
   auto [set_begin, set_end] = get_set_span(address);
   for(auto it = set_begin; it != set_end; it++)
     it->invincible = true;
 }
 
 void CACHE::free_invincible(uint64_t address) {
+  ++sim_stats.invincible_freed[cpu];
   auto [set_begin, set_end] = get_set_span(address);
   for(auto it = set_begin; it != set_end; it++)
     it->invincible = false;
@@ -411,7 +411,7 @@ void CACHE::random_free_invincible(void) {
   std::uniform_int_distribution<uint32_t> set_distribution(0, NUM_SET-1);
   std::uniform_int_distribution<uint32_t> way_distribution(0, NUM_WAY-1);
   uint32_t random_set = set_distribution(mt_set);
-  uint32_t random_way = set_distribution(mt_way);
+  uint32_t random_way = way_distribution(mt_way);
 
   auto set_begin = std::next(std::begin(block), random_set * NUM_WAY);
   auto set_end = std::next(set_begin, NUM_WAY);
@@ -496,6 +496,9 @@ bool CACHE::handle_invincible_miss(const tag_lookup_type& handle_pkt)
     }
   }
 
+  ++sim_stats.misses[champsim::to_underlying(handle_pkt.type)][handle_pkt.cpu];
+  ++sim_stats.blocked_accesses[champsim::to_underlying(handle_pkt.type)][handle_pkt.cpu];
+
   return true;
 }
 
@@ -506,6 +509,9 @@ bool CACHE::handle_invincible_write(const tag_lookup_type& handle_pkt)
 
   inflight_writes.emplace_back(fwd_pkt, current_cycle);
   inflight_writes.back().event_cycle = current_cycle + (warmup ? 0 : FILL_LATENCY);
+
+  ++sim_stats.misses[champsim::to_underlying(handle_pkt.type)][handle_pkt.cpu];
+  ++sim_stats.blocked_accesses[champsim::to_underlying(handle_pkt.type)][handle_pkt.cpu];
 
   return true;
 }
@@ -593,6 +599,8 @@ long CACHE::operate()
           return this->handle_invincible_miss(pkt);
         }
       }
+      if(this->is_invincible(pkt.address))
+        ++sim_stats.in_cartel_accesses[champsim::to_underlying(pkt.type)][pkt.cpu];
     }
     if (this->try_hit(pkt))
       return true;
@@ -912,7 +920,12 @@ void CACHE::end_phase(unsigned finished_cpu)
   for (auto type : {access_type::LOAD, access_type::RFO, access_type::PREFETCH, access_type::WRITE, access_type::TRANSLATION}) {
     roi_stats.hits.at(champsim::to_underlying(type)).at(finished_cpu) = sim_stats.hits.at(champsim::to_underlying(type)).at(finished_cpu);
     roi_stats.misses.at(champsim::to_underlying(type)).at(finished_cpu) = sim_stats.misses.at(champsim::to_underlying(type)).at(finished_cpu);
+    roi_stats.in_cartel_accesses.at(champsim::to_underlying(type)).at(finished_cpu) = sim_stats.in_cartel_accesses.at(champsim::to_underlying(type)).at(finished_cpu);
+    roi_stats.blocked_accesses.at(champsim::to_underlying(type)).at(finished_cpu) = sim_stats.blocked_accesses.at(champsim::to_underlying(type)).at(finished_cpu);
   }
+
+  roi_stats.invincible_activated.at(finished_cpu) = sim_stats.invincible_activated.at(finished_cpu);
+  roi_stats.invincible_freed.at(finished_cpu) = sim_stats.invincible_freed.at(finished_cpu);
 
   roi_stats.pf_requested = sim_stats.pf_requested;
   roi_stats.pf_issued = sim_stats.pf_issued;

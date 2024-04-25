@@ -53,6 +53,14 @@ void to_json(nlohmann::json& j, const CACHE::stats_type stats)
   statsmap.emplace("useful prefetch", stats.pf_useful);
   statsmap.emplace("useless prefetch", stats.pf_useless);
   statsmap.emplace("miss latency", stats.avg_miss_latency);
+  
+  for(uint32_t i = 0; i < NUM_CPUS; i++) {
+    std::string inva = "cpu" + std::to_string(i) + " invincible activated";
+    std::string invf = "cpu" + std::to_string(i) + " invincible freed";
+    statsmap.emplace(inva, stats.invincible_activated[i]);
+    statsmap.emplace(invf, stats.invincible_freed[i]);
+  }
+
   for (const auto& type : types) {
     statsmap.emplace(type.first, nlohmann::json{{"hit", stats.hits[type.second]}, {"miss", stats.misses[type.second]}});
   }

@@ -41,7 +41,7 @@
 #include "operable.h"
 #include <type_traits>
 
-#define RANDOM_EVICTION_FREQ 10
+#define RANDOM_EVICTION_FREQ 1000
 
 struct cache_stats {
   std::string name;
@@ -54,6 +54,11 @@ struct cache_stats {
 
   std::array<std::array<uint64_t, NUM_CPUS>, champsim::to_underlying(access_type::NUM_TYPES)> hits = {};
   std::array<std::array<uint64_t, NUM_CPUS>, champsim::to_underlying(access_type::NUM_TYPES)> misses = {};
+
+  std::array<uint64_t, NUM_CPUS> invincible_activated = {};
+  std::array<uint64_t, NUM_CPUS> invincible_freed = {};
+  std::array<std::array<uint64_t, NUM_CPUS>, champsim::to_underlying(access_type::NUM_TYPES)> in_cartel_accesses = {};
+  std::array<std::array<uint64_t, NUM_CPUS>, champsim::to_underlying(access_type::NUM_TYPES)> blocked_accesses = {};
 
   double avg_miss_latency = 0;
   uint64_t total_miss_latency = 0;

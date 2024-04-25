@@ -65,6 +65,14 @@ void champsim::plain_printer::print(CACHE::stats_type stats)
       TOTAL_MISS += stats.misses.at(type.second).at(cpu);
     }
 
+    if(stats.name == "LLC") {
+      fmt::print(stream, "cpu{} INVINCIBLE ACTIVATED: {} FREED: {}\n", cpu, stats.invincible_activated[cpu], stats.invincible_freed[cpu]);
+      for (const auto& type : types) {
+        fmt::print(stream, "{} {:<12s} IN CARTEL ACCESSES: {:10d} BLOCKED ACCESSES: {:10d}\n", stats.name, type.first,
+                stats.in_cartel_accesses[type.second][cpu], stats.blocked_accesses[type.second][cpu]);
+      }
+    }
+
     fmt::print(stream, "{} TOTAL        ACCESS: {:10d} HIT: {:10d} MISS: {:10d}\n", stats.name, TOTAL_HIT + TOTAL_MISS, TOTAL_HIT, TOTAL_MISS);
     for (const auto& type : types) {
       fmt::print(stream, "{} {:<12s} ACCESS: {:10d} HIT: {:10d} MISS: {:10d}\n", stats.name, type.first,
