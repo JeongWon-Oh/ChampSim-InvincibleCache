@@ -39,8 +39,8 @@
     },
 
     "L1I": {
-        "sets": 64,
-        "ways": 8,
+        "sets": 32,
+        "ways": 16,
         "rq_size": 64,
         "wq_size": 64,
         "pq_size": 32,
@@ -55,13 +55,13 @@
     },
 
     "L1D": {
-        "sets": 64,
-        "ways": 12,
+        "sets": 32,
+        "ways": 16,
         "rq_size": 64,
         "wq_size": 64,
         "pq_size": 8,
         "mshr_size": 16,
-        "latency": 5,
+        "latency": 4,
         "max_tag_check": 2,
         "max_fill": 2,
         "prefetch_as_load": false,
@@ -71,13 +71,13 @@
     },
 
     "L2C": {
-        "sets": 1024,
-        "ways": 8,
+        "sets": 256,
+        "ways": 16,
         "rq_size": 32,
         "wq_size": 32,
         "pq_size": 16,
         "mshr_size": 32,
-        "latency": 10,
+        "latency": 12,
         "max_tag_check": 1,
         "max_fill": 1,
         "prefetch_as_load": false,
@@ -142,21 +142,20 @@
 
     "LLC": {
         "frequency": 4000,
-        "sets": 32,
+        "sets": 8192,
         "ways": 16,
         "rq_size": 32,
         "wq_size": 32,
         "pq_size": 32,
         "mshr_size": 64,
-        "latency": 20,
+        "latency": 44,
         "max_tag_check": 1,
         "max_fill": 1,
         "prefetch_as_load": false,
         "virtual_prefetch": false,
         "prefetch_activate": "LOAD,PREFETCH",
         "prefetcher": "no",
-        "replacement": "lru",
-        "clustivity": "inclusive"
+        "replacement": "lru"
     },
 
     "physical_memory": {
