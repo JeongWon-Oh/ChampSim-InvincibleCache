@@ -3,6 +3,8 @@ core
 .csconfig/
 _configuration.mk
 
+**/*.txt
+
 **/__pycache__/
 *.pyc
 

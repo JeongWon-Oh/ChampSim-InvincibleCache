@@ -28,7 +28,7 @@ TRACES=(
 )
 
 # Create results directory if it doesn't exist
-mkdir -p ./results-test-1core
+mkdir -p ./results-test-1core-1000re
 
 # Counter for parallel jobs
 MAX_JOBS=32 # Adjust this number based on your system's capability
@@ -38,7 +38,7 @@ job_count=0
 for TRACE in "${TRACES[@]}"
 do
     echo "Running simulation for $TRACE"
-    ./bin/champsim --warmup-instructions 200000000 --simulation-instructions 200000000 "$TRACE_DIR/$TRACE" > "./results-test-1core/${TRACE%.xz}.txt" &
+    ./bin/champsim --warmup-instructions 200000000 --simulation-instructions 200000000 "$TRACE_DIR/$TRACE" > "./results-test-1core-1000re/${TRACE%.xz}.txt" &
     
     # Increment job count and wait if it reaches the max
     ((job_count++))
