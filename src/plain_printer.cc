@@ -59,10 +59,12 @@ void champsim::plain_printer::print(CACHE::stats_type stats)
        std::pair{"TRANSLATION", champsim::to_underlying(access_type::TRANSLATION)}}};
 
   for (std::size_t cpu = 0; cpu < NUM_CPUS; ++cpu) {
-    uint64_t TOTAL_HIT = 0, TOTAL_MISS = 0;
+    uint64_t TOTAL_HIT = 0, TOTAL_MISS = 0, TOTAL_C_HIT = 0, TOTAL_C_MISS = 0;
     for (const auto& type : types) {
       TOTAL_HIT += stats.hits.at(type.second).at(cpu);
       TOTAL_MISS += stats.misses.at(type.second).at(cpu);
+      TOTAL_C_HIT += stats.in_cartel_hits.at(type.second).at(cpu);
+      TOTAL_C_MISS += stats.in_cartel_misses.at(type.second).at(cpu);
     }
 
     if(stats.name == "LLC") {
@@ -70,6 +72,12 @@ void champsim::plain_printer::print(CACHE::stats_type stats)
       for (const auto& type : types) {
         fmt::print(stream, "{} {:<12s} IN CARTEL ACCESSES: {:10d} BLOCKED ACCESSES: {:10d}\n", stats.name, type.first,
                 stats.in_cartel_accesses[type.second][cpu], stats.blocked_accesses[type.second][cpu]);
+      }
+
+      fmt::print(stream, "{} TOTAL       IN CARTEL ACCESS: {:10d} IN CARTEL HIT: {:10d} IN CARTEL MISS: {:10d}\n", stats.name, TOTAL_C_HIT + TOTAL_C_MISS, TOTAL_C_HIT, TOTAL_C_MISS);
+      for (const auto& type : types) {
+        fmt::print(stream, "{} {:<12s} IN CARTEL ACCESS: {:10d} IN CARTEL HIT: {:10d} IN CARTEL MISS: {:10d}\n", stats.name, type.first,
+                 stats.in_cartel_hits[type.second][cpu] + stats.in_cartel_misses[type.second][cpu], stats.in_cartel_hits[type.second][cpu], stats.in_cartel_misses[type.second][cpu]);
       }
     }
 

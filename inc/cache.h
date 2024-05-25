@@ -41,7 +41,7 @@
 #include "operable.h"
 #include <type_traits>
 
-#define RANDOM_EVICTION_FREQ 1000
+// #define RANDOM_EVICTION_FREQ 1000
 
 struct cache_stats {
   std::string name;
@@ -59,6 +59,8 @@ struct cache_stats {
   std::array<uint64_t, NUM_CPUS> invincible_freed = {};
   std::array<std::array<uint64_t, NUM_CPUS>, champsim::to_underlying(access_type::NUM_TYPES)> in_cartel_accesses = {};
   std::array<std::array<uint64_t, NUM_CPUS>, champsim::to_underlying(access_type::NUM_TYPES)> blocked_accesses = {};
+  std::array<std::array<uint64_t, NUM_CPUS>, champsim::to_underlying(access_type::NUM_TYPES)> in_cartel_hits = {};
+  std::array<std::array<uint64_t, NUM_CPUS>, champsim::to_underlying(access_type::NUM_TYPES)> in_cartel_misses = {};
 
   double avg_miss_latency = 0;
   uint64_t total_miss_latency = 0;
@@ -149,7 +151,7 @@ class CACHE : public champsim::operable
     bool prefetch = false;
     bool dirty = false;
 
-    bool invincible = false;
+    // bool invincible = false;
     uint32_t cpu;
 
     uint64_t address = 0;
@@ -197,6 +199,9 @@ public:
   bool ever_seen_data = false;
   const unsigned pref_activate_mask = (1 << champsim::to_underlying(access_type::LOAD)) | (1 << champsim::to_underlying(access_type::PREFETCH));
 
+  std::vector<uint32_t> set_count = std::vector<uint32_t>(NUM_SET, 0);
+  std::vector<bool> inv_table = std::vector<bool>(NUM_SET, false);
+
   using stats_type = cache_stats;
 
   stats_type sim_stats, roi_stats;
@@ -242,7 +247,7 @@ public:
 
   bool is_invincible(uint64_t address);
   bool is_set_full(uint64_t address);
-  bool is_in_cartel(uint64_t address);
+  bool is_in_cartel(uint64_t address, uint32_t cpu);
   void make_invincible(uint64_t address);
   void free_invincible(uint64_t address);
   void handle_llc_invincible(void);

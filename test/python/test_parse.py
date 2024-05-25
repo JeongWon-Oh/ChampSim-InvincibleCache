@@ -548,6 +548,12 @@ class ConfigRootPassthroughParseTests(unittest.TestCase):
         self.assertIn('heartbeat_frequency', result[3])
         self.assertEqual(test_config.get('heartbeat_frequency'), result[3].get('heartbeat_frequency'))
 
+    # def test_random_eviction_freq_passes_through(self):
+    #     test_config = { 'random_eviction_freq': 27 }
+    #     result = config.parse.parse_normalized(*self.base_config, test_config, PassthroughContext(), PassthroughContext(), PassthroughContext(), PassthroughContext(), False)
+    #     self.assertIn('random_eviction_freq', result[3])
+    #     self.assertEqual(test_config.get('random_eviction_freq'), result[3].get('random_eviction_freq'))
+
 class FoundMoreContext:
     def find(self, module):
         return {'name': module, 'fname': 'xxyzzy/'+module, '_is_instruction_prefetcher': module.endswith('_instr')}

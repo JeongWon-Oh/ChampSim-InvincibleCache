@@ -1,9 +1,10 @@
 {
-    "executable_name": "champsim",
+    "executable_name": "1core-10re",
     "block_size": 64,
     "page_size": 4096,
     "heartbeat_frequency": 10000000,
     "num_cores": 1,
+    "random_eviction_freq": 10,
 
     "ooo_cpu": [
         {
