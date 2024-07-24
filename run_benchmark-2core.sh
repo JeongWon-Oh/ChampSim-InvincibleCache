@@ -15,9 +15,12 @@ TRACES=(
 )
 
 # Create results directory if it doesn't exist
-mkdir -p ./results-2core-10re
-mkdir -p ./results-2core-100re
-mkdir -p ./results-2core-1000re
+# mkdir -p ./results-2core-10re
+# mkdir -p ./results-2core-100re
+# mkdir -p ./results-2core-1000re
+# mkdir -p ./results-2core-default
+
+mkdir -p ./results-2core-1re
 
 # Counter for parallel jobs
 MAX_JOBS=21 # Adjust this number based on your system's capability
@@ -35,9 +38,11 @@ do
         TRACE1=${TRACES[$i]}
         TRACE2=${TRACES[$j]}
         echo "Running simulation for $TRACE1 $TRACE2"
-        ./bin/2core-10re --warmup-instructions 200000000 --simulation-instructions 200000000 "$TRACE_DIR/$TRACE1" "$TRACE_DIR/$TRACE2"> "./results-2core-10re/${TRACE1%.*}_${TRACE2%.*}.txt" &
-        ./bin/2core-100re --warmup-instructions 200000000 --simulation-instructions 200000000 "$TRACE_DIR/$TRACE1" "$TRACE_DIR/$TRACE2"> "./results-2core-100re/${TRACE1%.*}_${TRACE2%.*}.txt" &
-        ./bin/2core-1000re --warmup-instructions 200000000 --simulation-instructions 200000000 "$TRACE_DIR/$TRACE1" "$TRACE_DIR/$TRACE2"> "./results-2core-1000re/${TRACE1%.*}_${TRACE2%.*}.txt" &
+        # ./bin/2core-10re --warmup-instructions 200000000 --simulation-instructions 200000000 "$TRACE_DIR/$TRACE1" "$TRACE_DIR/$TRACE2"> "./results-2core-10re/${TRACE1%.*}_${TRACE2%.*}.txt" &
+        # ./bin/2core-100re --warmup-instructions 200000000 --simulation-instructions 200000000 "$TRACE_DIR/$TRACE1" "$TRACE_DIR/$TRACE2"> "./results-2core-100re/${TRACE1%.*}_${TRACE2%.*}.txt" &
+        # ./bin/2core-1000re --warmup-instructions 200000000 --simulation-instructions 200000000 "$TRACE_DIR/$TRACE1" "$TRACE_DIR/$TRACE2"> "./results-2core-1000re/${TRACE1%.*}_${TRACE2%.*}.txt" &
+        # ./bin/2core-default --warmup-instructions 200000000 --simulation-instructions 200000000 "$TRACE_DIR/$TRACE1" "$TRACE_DIR/$TRACE2"> "./results-2core-default/${TRACE1%.*}_${TRACE2%.*}.txt" &
+        ./bin/2core-1re --warmup-instructions 200000000 --simulation-instructions 200000000 "$TRACE_DIR/$TRACE1" "$TRACE_DIR/$TRACE2"> "./results-2core-1re/${TRACE1%.*}_${TRACE2%.*}.txt" &
         
         # Increment job count and wait if it reaches the max
         ((job_count++))

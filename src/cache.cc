@@ -553,7 +553,7 @@ Invincible Cache Control Functions End
 
 long CACHE::operate()
 {
-  bool is_llc = (NAME == "LLC");
+  bool is_llc = (NAME == "LLC") && (RANDOM_EVICTION_FREQ != 0);
   if(is_llc) {
     if(current_cycle%RANDOM_EVICTION_FREQ == 0)
       this->random_free_invincible();

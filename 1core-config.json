@@ -1,10 +1,10 @@
 {
-    "executable_name": "1core-10re",
+    "executable_name": "1core-default",
     "block_size": 64,
     "page_size": 4096,
     "heartbeat_frequency": 10000000,
     "num_cores": 1,
-    "random_eviction_freq": 10,
+    "random_eviction_freq": 0,
 
     "ooo_cpu": [
         {
