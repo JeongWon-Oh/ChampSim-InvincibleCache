@@ -21,7 +21,7 @@ from . import defaults
 from . import modules
 from . import util
 
-default_root = { 'block_size': 64, 'page_size': 4096, 'heartbeat_frequency': 10000000, 'num_cores': 1 }
+default_root = { 'block_size': 64, 'page_size': 4096, 'heartbeat_frequency': 10000000, 'num_cores': 1, 'random_eviction_freq': 1000, 'random_eviction_single': 0 }
 default_core = { 'frequency' : 4000 }
 default_pmem = { 'name': 'DRAM', 'frequency': 3200, 'channels': 1, 'ranks': 1, 'banks': 8, 'rows': 65536, 'columns': 128, 'lines_per_column': 8, 'channel_width': 8, 'wq_size': 64, 'rq_size': 64, 'tRP': 12.5, 'tRCD': 12.5, 'tCAS': 12.5, 'turn_around_time': 7.5 }
 default_vmem = { 'pte_page_size': (1 << 12), 'num_levels': 5, 'minor_fault_penalty': 200 }
@@ -223,7 +223,7 @@ def parse_normalized(cores, caches, ptws, pmem, vmem, merged_configs, branch_con
         ))]
 
     env_vars = ('CC', 'CXX', 'CPPFLAGS', 'CXXFLAGS', 'LDFLAGS', 'LDLIBS')
-    extern_config_file_keys = ('block_size', 'page_size', 'heartbeat_frequency', 'num_cores')
+    extern_config_file_keys = ('block_size', 'page_size', 'heartbeat_frequency', 'num_cores', 'random_eviction_freq', 'random_eviction_single')
 
     return elements, modules_to_compile, module_info, util.subdict(config_file, extern_config_file_keys), util.subdict(config_file, env_vars)
 

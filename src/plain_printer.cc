@@ -59,10 +59,31 @@ void champsim::plain_printer::print(CACHE::stats_type stats)
        std::pair{"TRANSLATION", champsim::to_underlying(access_type::TRANSLATION)}}};
 
   for (std::size_t cpu = 0; cpu < NUM_CPUS; ++cpu) {
-    uint64_t TOTAL_HIT = 0, TOTAL_MISS = 0;
+    uint64_t TOTAL_HIT = 0, TOTAL_MISS = 0, TOTAL_C_HIT = 0, TOTAL_C_MISS = 0, TOTAL_INV_ACCESS = 0, TOTAL_INV_BLOCKED = 0;
     for (const auto& type : types) {
       TOTAL_HIT += stats.hits.at(type.second).at(cpu);
       TOTAL_MISS += stats.misses.at(type.second).at(cpu);
+      TOTAL_C_HIT += stats.invincible_in_cartel_hit.at(type.second).at(cpu);
+      TOTAL_C_MISS += stats.invincible_in_cartel_miss.at(type.second).at(cpu);
+      TOTAL_INV_ACCESS += stats.invincible_in_cartel_accesses.at(type.second).at(cpu);
+      TOTAL_INV_BLOCKED += stats.invincible_blocked.at(type.second).at(cpu);
+    }
+    if(TOTAL_HIT+TOTAL_MISS == 0)
+      continue;
+
+    if(stats.name == "LLC") {
+      fmt::print(stream, "cpu{} INVINCIBLE ACTIVATED: {} FREED: {}\n", cpu, stats.invincible_activated[cpu], stats.invincible_freed[cpu]);
+      // fmt::print(stream, "{} TOTAL       IN CARTEL ACCESSES: {:10d} BLOCKED ACCESSES: {:10d}\n", stats.name, TOTAL_INV_ACCESS, TOTAL_INV_BLOCKED);
+      // for (const auto& type : types) {
+      //   fmt::print(stream, "{} {:<12s} IN CARTEL ACCESSES: {:10d} BLOCKED ACCESSES: {:10d}\n", stats.name, type.first,
+      //           stats.invincible_in_cartel_accesses[type.second][cpu], stats.invincible_blocked[type.second][cpu]);
+      // }
+
+      fmt::print(stream, "{} TOTAL       IN CARTEL ACCESS: {:10d} IN CARTEL HIT: {:10d} IN CARTEL MISS: {:10d} BLOCKED ACCESSES: {:10d}\n", stats.name, TOTAL_C_HIT + TOTAL_C_MISS, TOTAL_C_HIT, TOTAL_C_MISS, TOTAL_INV_BLOCKED);
+      for (const auto& type : types) {
+        fmt::print(stream, "{} {:<12s} IN CARTEL ACCESS: {:10d} IN CARTEL HIT: {:10d} IN CARTEL MISS: {:10d} BLOCKED ACCESSES: {:10d}\n", stats.name, type.first,
+                 stats.invincible_in_cartel_hit[type.second][cpu] + stats.invincible_in_cartel_miss[type.second][cpu], stats.invincible_in_cartel_hit[type.second][cpu], stats.invincible_in_cartel_miss[type.second][cpu], stats.invincible_blocked[type.second][cpu]);
+      }
     }
 
     fmt::print(stream, "{} TOTAL        ACCESS: {:10d} HIT: {:10d} MISS: {:10d}\n", stats.name, TOTAL_HIT + TOTAL_MISS, TOTAL_HIT, TOTAL_MISS);
@@ -85,7 +106,7 @@ void champsim::plain_printer::print(DRAM_CHANNEL::stats_type stats)
     fmt::print(stream, " AVG DBUS CONGESTED CYCLE: {:.4g}\n", std::ceil(stats.dbus_cycle_congested) / std::ceil(stats.dbus_count_congested));
   else
     fmt::print(stream, " AVG DBUS CONGESTED CYCLE: -\n");
-  fmt::print(stream, "WQ ROW_BUFFER_HIT: {:10}\n  ROW_BUFFER_MISS: {:10}\n  FULL: {:10}\n", stats.name, stats.WQ_ROW_BUFFER_HIT, stats.WQ_ROW_BUFFER_MISS,
+  fmt::print(stream, "{} WQ ROW_BUFFER_HIT: {:10}\n  ROW_BUFFER_MISS: {:10}\n  FULL: {:10}\n", stats.name, stats.WQ_ROW_BUFFER_HIT, stats.WQ_ROW_BUFFER_MISS,
              stats.WQ_FULL);
 }
 
@@ -95,7 +116,7 @@ void champsim::plain_printer::print(champsim::phase_stats& stats)
 
   int i = 0;
   for (auto tn : stats.trace_names)
-    fmt::print(stream, "CPU {} runs {}", i++, tn);
+    fmt::print(stream, "CPU {} runs {}\n", i++, tn);
 
   if (NUM_CPUS > 1) {
     fmt::print(stream, "\nTotal Simulation Statistics (not including warmup)\n");
@@ -108,6 +129,8 @@ void champsim::plain_printer::print(champsim::phase_stats& stats)
   }
 
   fmt::print(stream, "\nRegion of Interest Statistics\n");
+
+  fmt::print(stream, "Random Eviction Freq: {} single: {}\n", RANDOM_EVICTION_FREQ, RANDOM_EVICTION_SINGLE);
 
   for (const auto& stat : stats.roi_cpu_stats)
     print(stat);

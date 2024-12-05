@@ -30,6 +30,10 @@
 #include <string>
 #include <vector>
 
+#include <iostream>
+#include <map>
+#include <random>
+
 #include "champsim.h"
 #include "champsim_constants.h"
 #include "channel.h"
@@ -48,6 +52,13 @@ struct cache_stats {
 
   std::array<std::array<uint64_t, NUM_CPUS>, champsim::to_underlying(access_type::NUM_TYPES)> hits = {};
   std::array<std::array<uint64_t, NUM_CPUS>, champsim::to_underlying(access_type::NUM_TYPES)> misses = {};
+  
+  std::array<uint64_t, NUM_CPUS> invincible_activated = {};
+  std::array<uint64_t, NUM_CPUS> invincible_freed = {};
+  std::array<std::array<uint64_t, NUM_CPUS>, champsim::to_underlying(access_type::NUM_TYPES)> invincible_in_cartel_accesses = {};
+  std::array<std::array<uint64_t, NUM_CPUS>, champsim::to_underlying(access_type::NUM_TYPES)> invincible_in_cartel_hit = {};
+  std::array<std::array<uint64_t, NUM_CPUS>, champsim::to_underlying(access_type::NUM_TYPES)> invincible_in_cartel_miss = {};
+  std::array<std::array<uint64_t, NUM_CPUS>, champsim::to_underlying(access_type::NUM_TYPES)> invincible_blocked = {};
 
   double avg_miss_latency = 0;
   uint64_t total_miss_latency = 0;
@@ -102,6 +113,7 @@ class CACHE : public champsim::operable
 
     access_type type;
     bool prefetch_from_this;
+    bool invincible_bypass = false;
 
     uint8_t asid[2] = {std::numeric_limits<uint8_t>::max(), std::numeric_limits<uint8_t>::max()};
 
@@ -119,8 +131,16 @@ class CACHE : public champsim::operable
   bool handle_fill(const mshr_type& fill_mshr);
   bool handle_miss(const tag_lookup_type& handle_pkt);
   bool handle_write(const tag_lookup_type& handle_pkt);
+  bool handle_invincible_blocked_miss(const tag_lookup_type& handle_pkt);
+  bool handle_invincible_blocked_write(const tag_lookup_type& handle_pkt);
   void finish_packet(const response_type& packet);
   void finish_translation(const response_type& packet);
+
+  bool is_invincible(uint64_t address);
+  bool is_in_cartel(uint64_t address, uint32_t this_cpu);
+  void make_invincible(uint64_t address);
+  void free_invincible(uint64_t address);
+  void random_eviction();
 
   void issue_translation();
 
@@ -128,6 +148,8 @@ class CACHE : public champsim::operable
     bool valid = false;
     bool prefetch = false;
     bool dirty = false;
+
+    uint32_t cpu;
 
     uint64_t address = 0;
     uint64_t v_address = 0;
@@ -172,6 +194,9 @@ public:
   const bool virtual_prefetch;
   bool ever_seen_data = false;
   const unsigned pref_activate_mask = (1 << champsim::to_underlying(access_type::LOAD)) | (1 << champsim::to_underlying(access_type::PREFETCH));
+
+  std::vector<uint32_t> set_count = std::vector<uint32_t>(NUM_SET, 0);
+  std::vector<bool> inv_table = std::vector<bool>(NUM_SET, false);
 
   using stats_type = cache_stats;
 
@@ -311,6 +336,7 @@ public:
     bool m_pref_load{};
     bool m_wq_full_addr{};
     bool m_va_pref{};
+    
 
     unsigned m_pref_act_mask{};
     std::vector<CACHE::channel_type*> m_uls{};
@@ -324,7 +350,8 @@ public:
         : m_name(other.m_name), m_freq_scale(other.m_freq_scale), m_sets(other.m_sets), m_ways(other.m_ways), m_pq_size(other.m_pq_size),
           m_mshr_size(other.m_mshr_size), m_hit_lat(other.m_hit_lat), m_fill_lat(other.m_fill_lat), m_latency(other.m_latency), m_max_tag(other.m_max_tag),
           m_max_fill(other.m_max_fill), m_offset_bits(other.m_offset_bits), m_pref_load(other.m_pref_load), m_wq_full_addr(other.m_wq_full_addr),
-          m_va_pref(other.m_va_pref), m_pref_act_mask(other.m_pref_act_mask), m_uls(other.m_uls), m_ll(other.m_ll), m_lt(other.m_lt)
+          m_va_pref(other.m_va_pref), m_pref_act_mask(other.m_pref_act_mask), m_uls(other.m_uls), 
+          m_ll(other.m_ll), m_lt(other.m_lt)
     {
     }
 

@@ -40,7 +40,7 @@ CACHE::tag_lookup_type::tag_lookup_type(request_type req, bool local_pref, bool 
 
 CACHE::mshr_type::mshr_type(tag_lookup_type req, uint64_t cycle)
     : address(req.address), v_address(req.v_address), data(req.data), ip(req.ip), instr_id(req.instr_id), pf_metadata(req.pf_metadata), cpu(req.cpu),
-      type(req.type), prefetch_from_this(req.prefetch_from_this), cycle_enqueued(cycle), instr_depend_on_me(req.instr_depend_on_me), to_return(req.to_return)
+      type(req.type), prefetch_from_this(req.prefetch_from_this), invincible_bypass(false), cycle_enqueued(cycle), instr_depend_on_me(req.instr_depend_on_me), to_return(req.to_return)
 {
 }
 
@@ -58,6 +58,7 @@ CACHE::mshr_type CACHE::mshr_type::merge(mshr_type predecessor, mshr_type succes
   retval.instr_depend_on_me = merged_instr;
   retval.to_return = merged_return;
   retval.data = predecessor.data;
+  retval.invincible_bypass = predecessor.invincible_bypass || successor.invincible_bypass;
 
   if (predecessor.event_cycle < std::numeric_limits<uint64_t>::max()) {
     retval.event_cycle = predecessor.event_cycle;
@@ -75,13 +76,40 @@ CACHE::mshr_type CACHE::mshr_type::merge(mshr_type predecessor, mshr_type succes
 }
 
 CACHE::BLOCK::BLOCK(mshr_type mshr)
-    : valid(true), prefetch(mshr.prefetch_from_this), dirty(mshr.type == access_type::WRITE), address(mshr.address), v_address(mshr.v_address), data(mshr.data)
+    : valid(true), prefetch(mshr.prefetch_from_this), dirty(mshr.type == access_type::WRITE), cpu(mshr.cpu), address(mshr.address), v_address(mshr.v_address), data(mshr.data)
 {
 }
 
 bool CACHE::handle_fill(const mshr_type& fill_mshr)
 {
   cpu = fill_mshr.cpu;
+  bool is_replacing = false;
+
+  if(fill_mshr.invincible_bypass) {
+    bool success = true;
+    if(fill_mshr.type == access_type::WRITE) {
+      request_type writeback_packet;
+
+      writeback_packet.cpu = fill_mshr.cpu;
+      writeback_packet.address = fill_mshr.address;
+      writeback_packet.data = fill_mshr.data;
+      writeback_packet.instr_id = fill_mshr.instr_id;
+      writeback_packet.ip = 0;
+      writeback_packet.type = access_type::WRITE;
+      writeback_packet.pf_metadata = fill_mshr.pf_metadata;
+      writeback_packet.response_requested = false;
+
+      success = lower_level->add_wq(writeback_packet);
+    } else {
+      sim_stats.total_miss_latency += current_cycle - (fill_mshr.cycle_enqueued + 1);
+
+      response_type response{fill_mshr.address, fill_mshr.v_address, fill_mshr.data, fill_mshr.pf_metadata, fill_mshr.instr_depend_on_me};
+      for (auto ret : fill_mshr.to_return)
+        ret->push_back(response);
+    }
+
+    return success;
+  }
 
   // find victim
   auto [set_begin, set_end] = get_set_span(fill_mshr.address);
@@ -92,6 +120,8 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
   assert(set_begin <= way);
   assert(way <= set_end);
   const auto way_idx = static_cast<std::size_t>(std::distance(set_begin, way)); // cast protected by earlier assertion
+  if(way->valid)
+    is_replacing = true;
 
   if constexpr (champsim::debug_print) {
     fmt::print(
@@ -161,6 +191,14 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
       ret->push_back(response);
   }
 
+  if((NAME == "LLC") && (RANDOM_EVICTION_FREQ != 0) && success && !is_replacing) {
+    const auto set_idx = get_set_index(way->address);
+    set_count[set_idx] += 1;
+    assert(set_count[set_idx] <= NUM_WAY);
+    if(set_count[set_idx] == NUM_WAY)
+      make_invincible(way->address);
+  }
+
   return success;
 }
 
@@ -190,6 +228,8 @@ bool CACHE::try_hit(const tag_lookup_type& handle_pkt)
 
   if (hit) {
     ++sim_stats.hits[champsim::to_underlying(handle_pkt.type)][handle_pkt.cpu];
+    if((NAME == "LLC") && (RANDOM_EVICTION_FREQ != 0) && is_invincible(handle_pkt.address))
+      ++sim_stats.invincible_in_cartel_hit[champsim::to_underlying(handle_pkt.type)][handle_pkt.cpu];
 
     // update replacement policy
     const auto way_idx = static_cast<std::size_t>(std::distance(set_begin, way)); // cast protected by earlier assertion
@@ -287,6 +327,8 @@ bool CACHE::handle_miss(const tag_lookup_type& handle_pkt)
   }
 
   ++sim_stats.misses[champsim::to_underlying(handle_pkt.type)][handle_pkt.cpu];
+  if((NAME == "LLC") && (RANDOM_EVICTION_FREQ != 0) && is_invincible(handle_pkt.address))
+    ++sim_stats.invincible_in_cartel_miss[champsim::to_underlying(handle_pkt.type)][handle_pkt.cpu];
 
   return true;
 }
@@ -302,6 +344,107 @@ bool CACHE::handle_write(const tag_lookup_type& handle_pkt)
   inflight_writes.emplace_back(handle_pkt, current_cycle);
   inflight_writes.back().event_cycle = current_cycle + (warmup ? 0 : FILL_LATENCY);
     
+  ++sim_stats.misses[champsim::to_underlying(handle_pkt.type)][handle_pkt.cpu];
+  if((NAME == "LLC") && (RANDOM_EVICTION_FREQ != 0) && is_invincible(handle_pkt.address))
+    ++sim_stats.invincible_in_cartel_miss[champsim::to_underlying(handle_pkt.type)][handle_pkt.cpu];
+
+  return true;
+}
+
+bool CACHE::handle_invincible_blocked_miss(const tag_lookup_type& handle_pkt)
+{
+  if constexpr (champsim::debug_print) {
+    fmt::print("[{}] {} instr_id: {} address: {:#x} v_address: {:#x} type: {} local_prefetch: {} cycle: {}\n", NAME, __func__,
+               handle_pkt.instr_id, handle_pkt.address, handle_pkt.v_address,
+               access_type_names.at(champsim::to_underlying(handle_pkt.type)), handle_pkt.prefetch_from_this, current_cycle);
+  }
+
+  mshr_type to_allocate{handle_pkt, current_cycle};
+
+  cpu = handle_pkt.cpu;
+
+  // check mshr
+  auto mshr_entry = std::find_if(std::begin(MSHR), std::end(MSHR), [match = handle_pkt.address >> OFFSET_BITS, shamt = OFFSET_BITS](const auto& entry) {
+    return (entry.address >> shamt) == match;
+  });
+  bool mshr_full = (MSHR.size() == MSHR_SIZE);
+
+  if (mshr_entry != MSHR.end()) // miss already inflight
+  {
+    if (mshr_entry->type == access_type::PREFETCH && handle_pkt.type != access_type::PREFETCH) {
+      // Mark the prefetch as useful
+      if (mshr_entry->prefetch_from_this)
+        ++sim_stats.pf_useful;
+    }
+
+    *mshr_entry = mshr_type::merge(*mshr_entry, to_allocate);
+  } else {
+    if (mshr_full) { // not enough MSHR resource
+      if constexpr (champsim::debug_print) {
+        fmt::print("[{}] {} MSHR full\n", NAME, __func__);
+      }
+
+      return false;  // TODO should we allow prefetches anyway if they will not be filled to this level?
+    }
+
+    request_type fwd_pkt;
+
+    fwd_pkt.asid[0] = handle_pkt.asid[0];
+    fwd_pkt.asid[1] = handle_pkt.asid[1];
+    fwd_pkt.type = (handle_pkt.type == access_type::WRITE) ? access_type::RFO : handle_pkt.type;
+    fwd_pkt.pf_metadata = handle_pkt.pf_metadata;
+    fwd_pkt.cpu = handle_pkt.cpu;
+
+    fwd_pkt.address = handle_pkt.address;
+    fwd_pkt.v_address = handle_pkt.v_address;
+    fwd_pkt.data = handle_pkt.data;
+    fwd_pkt.instr_id = handle_pkt.instr_id;
+    fwd_pkt.ip = handle_pkt.ip;
+
+    fwd_pkt.instr_depend_on_me = handle_pkt.instr_depend_on_me;
+    fwd_pkt.response_requested = (!handle_pkt.prefetch_from_this || !handle_pkt.skip_fill);
+
+    bool success;
+    if (prefetch_as_load || handle_pkt.type != access_type::PREFETCH)
+      success = lower_level->add_rq(fwd_pkt);
+    else
+      success = lower_level->add_pq(fwd_pkt);
+
+    if (!success) {
+      if constexpr (champsim::debug_print) {
+        fmt::print("[{}] {} could not send to lower\n", NAME, __func__);
+      }
+
+      return false;
+    }
+
+    // Allocate an MSHR
+    if (fwd_pkt.response_requested) {
+      MSHR.push_back(to_allocate);
+      MSHR.back().pf_metadata = fwd_pkt.pf_metadata;
+      MSHR.back().invincible_bypass = true;
+    }
+  }
+
+  ++sim_stats.invincible_blocked[champsim::to_underlying(handle_pkt.type)][handle_pkt.cpu];
+  ++sim_stats.misses[champsim::to_underlying(handle_pkt.type)][handle_pkt.cpu];
+
+  return true;
+}
+
+bool CACHE::handle_invincible_blocked_write(const tag_lookup_type& handle_pkt)
+{
+  if constexpr (champsim::debug_print) {
+    fmt::print("[{}] {} instr_id: {} address: {:#x} v_address: {:#x} type: {} local_prefetch: {} cycle: {}\n", NAME, __func__, handle_pkt.instr_id,
+               handle_pkt.address, handle_pkt.v_address, access_type_names.at(champsim::to_underlying(handle_pkt.type)), handle_pkt.prefetch_from_this,
+               current_cycle);
+  }
+
+  inflight_writes.emplace_back(handle_pkt, current_cycle);
+  inflight_writes.back().event_cycle = current_cycle;
+  inflight_writes.back().invincible_bypass = true;
+    
+  ++sim_stats.invincible_blocked[champsim::to_underlying(handle_pkt.type)][handle_pkt.cpu];
   ++sim_stats.misses[champsim::to_underlying(handle_pkt.type)][handle_pkt.cpu];
 
   return true;
@@ -331,6 +474,11 @@ auto CACHE::initiate_tag_check(champsim::channel* ul)
 long CACHE::operate()
 {
   long progress{0};
+
+  if((NAME == "LLC") && (RANDOM_EVICTION_FREQ != 0)) {
+    if(current_cycle%RANDOM_EVICTION_FREQ == 0)
+      random_eviction();
+  }
 
   for (auto ul : upper_levels)
     ul->check_collision();
@@ -392,6 +540,16 @@ long CACHE::operate()
 
   // Perform tag checks
   auto do_tag_check = [this](const auto& pkt) {
+    if((NAME == "LLC") && (RANDOM_EVICTION_FREQ != 0) && this->is_invincible(pkt.address)) {
+      if(!this->is_in_cartel(pkt.address, pkt.cpu)) {
+        if (pkt.type == access_type::WRITE && !this->match_offset_bits)
+          return this->handle_invincible_blocked_write(pkt); // Treat writes (that is, writebacks) like fills
+        else
+          return this->handle_invincible_blocked_miss(pkt); // Treat writes (that is, stores) like reads
+      }
+      ++sim_stats.invincible_in_cartel_accesses[champsim::to_underlying(pkt.type)][pkt.cpu];
+    }
+
     if (this->try_hit(pkt))
       return true;
     if (pkt.type == access_type::WRITE && !this->match_offset_bits)
@@ -461,8 +619,15 @@ uint64_t CACHE::invalidate_entry(uint64_t inval_addr)
   auto inv_way =
       std::find_if(begin, end, [match = inval_addr >> OFFSET_BITS, shamt = OFFSET_BITS](const auto& entry) { return (entry.address >> shamt) == match; });
 
-  if (inv_way != end)
+  if (inv_way != end) {
     inv_way->valid = 0;
+    if((NAME == "LLC") && (RANDOM_EVICTION_FREQ != 0)) {
+      const auto set_idx = get_set_index(inv_way->address);
+      assert(set_count[set_idx] > 0);
+      set_count[set_idx] -= 1;
+      assert(set_count[set_idx] <= NUM_WAY);
+    }
+  }
 
   return std::distance(begin, inv_way);
 }
@@ -583,6 +748,100 @@ void CACHE::issue_translation()
   std::for_each(std::begin(inflight_tag_check), std::end(inflight_tag_check), issue);
   std::for_each(std::begin(translation_stash), std::end(translation_stash), issue);
 }
+
+/**************************************************************************************/
+bool CACHE::is_invincible(uint64_t address) {
+  assert((NAME == "LLC") && (RANDOM_EVICTION_FREQ != 0));
+  if(inv_table[get_set_index(address)]) {
+    assert(set_count[get_set_index(address)] == NUM_WAY);
+    return true;
+  }
+  return inv_table[get_set_index(address)];
+}
+
+bool CACHE::is_in_cartel(uint64_t address, uint32_t this_cpu) {
+  assert((NAME == "LLC") && (RANDOM_EVICTION_FREQ != 0));
+  auto [set_begin, set_end] = get_set_span(address);
+  auto way = std::find_if(set_begin, set_end, [this_cpu](auto x) { return x.cpu == this_cpu; });
+  if(way == set_end)
+    return false;
+  return true;
+}
+
+void CACHE::make_invincible(uint64_t address) {
+  assert((NAME == "LLC") && (RANDOM_EVICTION_FREQ != 0));
+  assert(set_count[get_set_index(address)] == NUM_WAY);
+  inv_table[get_set_index(address)] = true;
+  ++sim_stats.invincible_activated[cpu];
+}
+
+void CACHE::free_invincible(uint64_t address) {
+  assert((NAME == "LLC") && (RANDOM_EVICTION_FREQ != 0));
+  assert(set_count[get_set_index(address)] == NUM_WAY);
+  inv_table[get_set_index(address)] = false;
+  ++sim_stats.invincible_freed[cpu];
+}
+
+void CACHE::random_eviction() {
+  assert((NAME == "LLC") && (RANDOM_EVICTION_FREQ != 0));
+  std::random_device rd;
+  std::mt19937 mt_set(rd());
+  std::mt19937 mt_way(rd());
+  std::uniform_int_distribution<uint32_t> set_distribution(0, NUM_SET-1);
+  std::uniform_int_distribution<uint32_t> way_distribution(0, NUM_WAY-1);
+  uint32_t random_set = set_distribution(mt_set);
+  uint32_t random_way = way_distribution(mt_way);
+
+  auto set_begin = std::next(std::begin(block), random_set * NUM_WAY);
+  auto set_end = std::next(set_begin, NUM_WAY);
+  set_begin = std::move(set_begin);
+  if(is_invincible(set_begin->address)) {
+    free_invincible(set_begin->address);
+    if(RANDOM_EVICTION_SINGLE) {
+      auto it = set_begin;
+      for(uint32_t i = 0; i < random_way; i++)
+        it++;
+      assert(set_begin <= it && it <= set_end);
+      if(it->dirty) {
+        request_type writeback_packet;
+
+        writeback_packet.cpu = it->cpu;
+        writeback_packet.address = it->address;
+        writeback_packet.data = it->data;
+        // writeback_packet.instr_id = it->instr_id;
+        writeback_packet.ip = 0;
+        writeback_packet.type = access_type::WRITE;
+        writeback_packet.pf_metadata = it->pf_metadata;
+        writeback_packet.response_requested = false;
+
+        lower_level->add_wq(writeback_packet);
+      }
+      invalidate_entry(it->address);
+    } else {
+      auto it = set_begin;
+      for(uint32_t i = 0; i < random_way; i++) {
+        it++;
+        if(it->dirty) {
+          request_type writeback_packet;
+
+          writeback_packet.cpu = it->cpu;
+          writeback_packet.address = it->address;
+          writeback_packet.data = it->data;
+          // writeback_packet.instr_id = it->instr_id;
+          writeback_packet.ip = 0;
+          writeback_packet.type = access_type::WRITE;
+          writeback_packet.pf_metadata = it->pf_metadata;
+          writeback_packet.response_requested = false;
+
+          lower_level->add_wq(writeback_packet);
+        }
+        invalidate_entry(it->address);
+      }
+    }
+  }
+}
+
+/**************************************************************************************/
 
 std::size_t CACHE::get_mshr_occupancy() const { return std::size(MSHR); }
 
@@ -708,7 +967,14 @@ void CACHE::end_phase(unsigned finished_cpu)
   for (auto type : {access_type::LOAD, access_type::RFO, access_type::PREFETCH, access_type::WRITE, access_type::TRANSLATION}) {
     roi_stats.hits.at(champsim::to_underlying(type)).at(finished_cpu) = sim_stats.hits.at(champsim::to_underlying(type)).at(finished_cpu);
     roi_stats.misses.at(champsim::to_underlying(type)).at(finished_cpu) = sim_stats.misses.at(champsim::to_underlying(type)).at(finished_cpu);
+    roi_stats.invincible_in_cartel_accesses.at(champsim::to_underlying(type)).at(finished_cpu) = sim_stats.invincible_in_cartel_accesses.at(champsim::to_underlying(type)).at(finished_cpu);
+    roi_stats.invincible_in_cartel_hit.at(champsim::to_underlying(type)).at(finished_cpu) = sim_stats.invincible_in_cartel_hit.at(champsim::to_underlying(type)).at(finished_cpu);
+    roi_stats.invincible_in_cartel_miss.at(champsim::to_underlying(type)).at(finished_cpu) = sim_stats.invincible_in_cartel_miss.at(champsim::to_underlying(type)).at(finished_cpu);
+    roi_stats.invincible_blocked.at(champsim::to_underlying(type)).at(finished_cpu) = sim_stats.invincible_blocked.at(champsim::to_underlying(type)).at(finished_cpu);
   }
+
+  roi_stats.invincible_activated.at(finished_cpu) = sim_stats.invincible_activated.at(finished_cpu);
+  roi_stats.invincible_freed.at(finished_cpu) = sim_stats.invincible_freed.at(finished_cpu);
 
   roi_stats.pf_requested = sim_stats.pf_requested;
   roi_stats.pf_issued = sim_stats.pf_issued;

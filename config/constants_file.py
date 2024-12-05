@@ -20,6 +20,8 @@ def get_constants_file(env, pmem):
         '#include "util/bits.h"',
         'constexpr unsigned BLOCK_SIZE = {block_size};'.format(**env),
         'constexpr unsigned PAGE_SIZE = {page_size};'.format(**env),
+        'constexpr unsigned RANDOM_EVICTION_FREQ = {random_eviction_freq};'.format(**env),
+        'constexpr unsigned RANDOM_EVICTION_SINGLE = {random_eviction_single};'.format(**env),
         'constexpr uint64_t STAT_PRINTING_PERIOD = {heartbeat_frequency};'.format(**env),
         'constexpr std::size_t NUM_CPUS = {num_cores};'.format(**env),
         'constexpr auto LOG2_BLOCK_SIZE = champsim::lg2(BLOCK_SIZE);',

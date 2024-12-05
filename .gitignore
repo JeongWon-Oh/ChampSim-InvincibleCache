@@ -4,10 +4,14 @@ _configuration.mk
 **/__pycache__/
 *.pyc
 
+core
+
 bin/
 
 **/*.o
 **/*.d
+**/*.txt
+*.txt
 
 test/000-test-main
 
