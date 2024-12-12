@@ -778,6 +778,7 @@ void CACHE::make_invincible(uint64_t address) {
 void CACHE::free_invincible(uint64_t address) {
   assert((NAME == "LLC") && (RANDOM_EVICTION_FREQ != 0));
   assert(set_count[get_set_index(address)] == NUM_WAY);
+  assert(inv_table[get_set_index(address)]);
   inv_table[get_set_index(address)] = false;
   ++sim_stats.invincible_freed[cpu];
 }
